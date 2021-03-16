@@ -1,0 +1,11 @@
+<ul>
+{{range $key, $value := .Children}}
+    <li>{{$key}}/
+        {{template "partial.tree.html.tmpl" $value}}
+    </li>
+{{end}}
+{{range  .Objects}}
+    <li><a href="/{{.Key}}">{{.Key | ObjectBaseName }}</a> {{ .LastModified }}</li>
+{{end}}
+</ul>
+

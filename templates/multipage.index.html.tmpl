@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8"/>
+    <title>({{ .FullPath }})</title>
+</head>
+<body>
+<div>
+    <ul>
+        {{ if ne .DirName  "/" }}
+            <li><a href="../index.html">../</a></li>
+        {{ end }}
+        {{range $key, $value := .Children}}
+            <li><a href="{{$value.DirName}}/index.html">{{$value.DirName}}/</a></li>
+        {{end}}
+        {{range  .Objects}}
+            <li><a href="/{{.Key}}">{{.Key | ObjectBaseName }}</a> {{ .LastModified }}</li>
+        {{end}}
+    </ul>
+</div>
+</body>
+</html>

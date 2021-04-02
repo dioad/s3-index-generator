@@ -63,18 +63,13 @@ jobs:
 
     strategy:
       matrix:
-        os: [darwin, linux, windows]
+        os: [linux]
         arch: [amd64]
-        include:
-        - os: linux
-          arch: arm64
-        - os: darwin
-          arch: arm64
 
     env:
       GOOS: ${{ matrix.os }}
       GOARCH: ${{ matrix.arch }}
-      OUTPUT_FILE: ${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}_${{ matrix.os }}_${{ matrix.arch }}
+      OUTPUT_FILE: function-${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}
 
     steps:
     - name: Set up Go 1.x
@@ -135,24 +130,20 @@ jobs:
 
     strategy:
       matrix:
-        os: [darwin, linux, windows]
+        os: [linux]
         arch: [amd64]
-        include:
-        - os: linux
-          arch: arm64
-        - os: darwin
-          arch: arm64
     env:
-      OUTPUT_FILE: ${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}_${{ matrix.os }}_${{ matrix.arch }}
+      INPUT_FILE: ${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}_${{ matrix.os }}_${{ matrix.arch }}
+      OUTPUT_FILE: ${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}_${{ matrix.os }}_${{ matrix.arch }}.zip
 
     steps:
       - name: Download Asset
         uses: actions/download-artifact@v2
         with:
-          name: ${{ env.OUTPUT_FILE }}
+          name: ${{ env.INPUT_FILE }}
 
       - name: Zip Asset
-        run: zip "./${{ env.OUTPUT_FILE }}.zip" "${{ env.OUTPUT_FILE }}"
+        run: zip "./${{ env.OUTPUT_FILE }}.zip" "${{ env.INPUT_FILE }}"
 
       - name: Attach Release Asset
         id: upload-release-asset 
@@ -173,13 +164,8 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_S3_SECRET_ACCESS_KEY }}
           AWS_REGION: 'eu-west-2'
         run: |
-          sha256sum ${{ env.OUTPUT_FILE }} ${{ env.OUTPUT_FILE}}.zip > ${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}_${{ matrix.os }}_${{ matrix.arch }}_SHA256SUMS
+          sha256sum ${{ env.OUTPUT_FILE }} > ${{ env.OUTPUT_FILE }}_SHA256SUMS
           aws s3 cp ${{ env.OUTPUT_FILE }} s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/${{ needs.metadata.outputs.version }}/${{ env.OUTPUT_FILE }} \
-             --no-guess-mime-type \
-             --content-type "application/octet-stream" \
-             --no-progress \
-             --sse AES256
-          aws s3 cp ${{ env.OUTPUT_FILE }}.zip s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/${{ needs.metadata.outputs.version }}/${{ env.OUTPUT_FILE }}.zip \
              --no-guess-mime-type \
              --content-type "application/zip" \
              --no-progress \

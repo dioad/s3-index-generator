@@ -50,13 +50,8 @@ jobs:
 
     strategy:
       matrix:
-        os: [darwin, linux, windows]
+        os: linux
         arch: [amd64]
-        include:
-        - os: linux
-          arch: arm64
-        - os: darwin
-          arch: arm64
 
     env:
       GOOS: ${{ matrix.os }}
@@ -87,13 +82,14 @@ jobs:
 
     - name: Build
       run: |
-        go build -o ${{ github.event.repository.name }}_${{ matrix.os }}_${{ matrix.arch }} -v .
+        go build -o function-${{ github.event.repository.name }} -v .
+        zip function-${{ github.event.repository.name }}.zip function-${{ github.event.repository.name }}
 
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
       with:
-        name: ${{ github.event.repository.name }}_${{ matrix.os }}_${{ matrix.arch }}
-        path: ${{ github.event.repository.name }}_${{ matrix.os }}_${{ matrix.arch }}
+        name: function-${{ github.event.repository.name }}.zip
+        path: function-${{ github.event.repository.name }}.zip
 
     - name: Upload S3 Release Asset
       id: upload-s3-release-asset
@@ -103,9 +99,9 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_S3_SECRET_ACCESS_KEY }}
         AWS_REGION: 'eu-west-2'
       run: |
-        aws s3 cp ${{ github.event.repository.name }}_${{ matrix.os }}_${{ matrix.arch }} s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/build/${{ github.event.repository.name }}_${{ matrix.os }}_${{ matrix.arch }} \
+        aws s3 cp function-${{ github.event.repository.name }}.zip s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/build/function-${{ github.event.repository.name }}.zip \
            --no-guess-mime-type \
-           --content-type "application/octet-stream" \
+           --content-type "application/zip" \
            --no-progress \
            --sse AES256
 

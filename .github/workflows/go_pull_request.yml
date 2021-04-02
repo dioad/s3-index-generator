@@ -50,13 +50,8 @@ jobs:
 
     strategy:
       matrix:
-        os: [darwin, linux, windows]
+        os: [linux]
         arch: [amd64]
-        include:
-        - os: linux
-          arch: arm64
-        - os: darwin
-          arch: arm64
 
     env:
       GOOS: ${{ matrix.os }}
@@ -87,5 +82,5 @@ jobs:
 
     - name: Build
       run: |
-        go build -o ${{ github.event.repository.name }}_${{ matrix.os }}_${{ matrix.arch }} -v .
+        go build -v .
 

@@ -100,10 +100,14 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_S3_SECRET_ACCESS_KEY }}
         AWS_REGION: 'eu-west-2'
       run: |
-        sha256sum ${{ env.OUTPUT_ZIP }} > ${{ env.OUTPUT_ZIP }}.zip_SHA256SUMS
+        sha256sum ${{ env.OUTPUT_ZIP }} > ${{ env.OUTPUT_ZIP }}_SHA256SUMS
         aws s3 cp ${{ env.OUTPUT_ZIP }} s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/build/${{ env.OUTPUT_ZIP }} \
            --no-guess-mime-type \
            --content-type "application/zip" \
            --no-progress \
            --sse AES256
-
+        aws s3 cp ${{ env.OUTPUT_ZIP }}_SHA256SUMS s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/${{ needs.metadata.outputs.version }}/${{ env.OUTPUT_ZIP }}_SHA256SUMS \
+           --no-guess-mime-type \
+           --content-type "text/plain" \
+           --no-progress \
+           --sse AES256

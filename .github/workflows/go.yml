@@ -56,6 +56,8 @@ jobs:
     env:
       GOOS: ${{ matrix.os }}
       GOARCH: ${{ matrix.arch }}
+      OUTPUT_BINARY: function-${{ github.event.repository.name }}
+      OUTPUT_ZIP: function-${{ github.event.repository.name }}.zip
 
     steps:
 
@@ -82,14 +84,13 @@ jobs:
 
     - name: Build
       run: |
-        go build -o function-${{ github.event.repository.name }} -v .
-        zip function-${{ github.event.repository.name }}.zip function-${{ github.event.repository.name }}
-
+        go build -o ${{ env.OUTPUT_BINARY }} -v .
+        zip ${{ env.OUTPUT_ZIP }} ${{ env.OUTPUT_BINARY }}
     - name: Upload artifacts
       uses: actions/upload-artifact@v2
       with:
-        name: function-${{ github.event.repository.name }}.zip
-        path: function-${{ github.event.repository.name }}.zip
+        name: ${{ env.OUTPUT_ZIP }}
+        path: ${{ env.OUTPUT_ZIP }}
 
     - name: Upload S3 Release Asset
       id: upload-s3-release-asset
@@ -99,7 +100,8 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.ARTIFACT_UPLOAD_S3_SECRET_ACCESS_KEY }}
         AWS_REGION: 'eu-west-2'
       run: |
-        aws s3 cp function-${{ github.event.repository.name }}.zip s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/build/function-${{ github.event.repository.name }}.zip \
+        sha256sum ${{ env.OUTPUT_ZIP }} > ${{ env.OUTPUT_ZIP }}.zip_SHA256SUMS
+        aws s3 cp ${{ env.OUTPUT_ZIP }} s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/build/${{ env.OUTPUT_ZIP }} \
            --no-guess-mime-type \
            --content-type "application/zip" \
            --no-progress \

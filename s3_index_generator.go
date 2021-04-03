@@ -3,7 +3,6 @@ package main
 import (
 	"embed"
 	"errors"
-	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
@@ -41,16 +40,16 @@ func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) *ObjectTree {
+func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) (*ObjectTree, error) {
 	objInput := s3.ListObjectsInput{
 		Bucket: &objectBucketName,
 	}
 	objects, err := s3Client.ListObjects(&objInput)
 	if err != nil {
-		fmt.Printf("err: %v", err)
+		return nil, err
 	}
 	t := CreateObjectTree(objects.Contents)
-	return t
+	return t, nil
 }
 
 func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
@@ -117,7 +116,7 @@ func getTemplate(cfg Config, sess *session.Session) *template.Template {
 	return template
 }
 
-func GenerateIndexFiles(cfg Config, bucketName string) {
+func GenerateIndexFiles(cfg Config, bucketName string)  error {
 	sess := session.Must(
 		session.NewSessionWithOptions(
 			session.Options{
@@ -132,7 +131,10 @@ func GenerateIndexFiles(cfg Config, bucketName string) {
 		DisableRestProtocolURICleaning: aws.Bool(true),
 	})
 
-	t := fetchBucketObjectTree(s3Client, bucketName)
+	t, err := fetchBucketObjectTree(s3Client, bucketName)
+	if err != nil {
+		return err
+	}
 
 	var sp afero.Fs
 
@@ -150,8 +152,5 @@ func GenerateIndexFiles(cfg Config, bucketName string) {
 		renderer = renderObjectTreeAsSinglePage
 	}
 
-	err := renderer(t, template, cfg.IndexTemplate, sp)
-	if err != nil {
-		fmt.Printf("err: %v\n", err)
-	}
+	return renderer(t, template, cfg.IndexTemplate, sp)
 }

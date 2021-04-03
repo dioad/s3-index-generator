@@ -116,7 +116,7 @@ func getTemplate(cfg Config, sess *session.Session) *template.Template {
 	return template
 }
 
-func GenerateIndexFiles(cfg Config, bucketName string)  error {
+func GenerateIndexFiles(cfg Config, bucketName string) error {
 	sess := session.Must(
 		session.NewSessionWithOptions(
 			session.Options{

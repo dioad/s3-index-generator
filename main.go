@@ -13,9 +13,9 @@ import (
 )
 
 type Config struct {
-	TemplateBucketURL *url.URL
-	IndexType         string
-	IndexTemplate     string
+	TemplateBucketURL    *url.URL
+	IndexType            string
+	IndexTemplate        string
 	LocalOutputDirectory string
 }
 
@@ -49,10 +49,10 @@ func parseConfigFromEnvironment() Config {
 	return cfg
 }
 
-func HandleRequest(ctx context.Context, s3Event events.S3Event) (error) {
+func HandleRequest(ctx context.Context, s3Event events.S3Event) error {
 	cfg := parseConfigFromEnvironment()
 	for _, record := range s3Event.Records {
-		if ! strings.HasSuffix(record.S3.Object.Key, "index.html") {
+		if !strings.HasSuffix(record.S3.Object.Key, "index.html") {
 			bucketName := record.S3.Bucket.Name
 			err := GenerateIndexFiles(cfg, bucketName)
 			if err != nil {

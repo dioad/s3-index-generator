@@ -70,11 +70,13 @@ func main() {
 	} else {
 		if len(os.Args) >= 2 {
 			cfg := parseConfigFromEnvironment()
-			cfg.LocalOutputDirectory = "output"
 			if len(os.Args) == 3 {
 				cfg.LocalOutputDirectory = os.Args[2]
 			}
-			GenerateIndexFiles(cfg, os.Args[1])
+			err := GenerateIndexFiles(cfg, os.Args[1])
+			if err != nil {
+				fmt.Printf("err: %v\n", err)
+			}
 		}
 	}
 }

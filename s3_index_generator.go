@@ -138,7 +138,14 @@ func GenerateIndexFiles(cfg Config, bucketName string)  error {
 
 	var sp afero.Fs
 
+	serverSideEncryption := "AES256"
+	// bucketKeyEnabled := true
+	fileProps := &aferos3.UploadedFileProperties{
+		ServerSideEncryption: &serverSideEncryption,
+		// BucketKeyEnabled: &bucketKeyEnabled,
+	}
 	sp = aferos3.NewFs(bucketName, sess)
+	sp.(*aferos3.Fs).FileProps = fileProps
 
 	if cfg.LocalOutputDirectory != "" {
 		// if we're testing locally

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/url"
@@ -58,13 +59,22 @@ func parseConfigFromEnvironment() Config {
 }
 
 func HandleRequest(ctx context.Context, s3Event events.S3Event) error {
+	//	lc, _ := lambdacontext.FromContext(ctx)
+
+	eventJson, _ := json.MarshalIndent(s3Event, "", "  ")
+	log.Printf("DEBUG/S3-EVENT: %v", eventJson)
+
 	cfg := parseConfigFromEnvironment()
 	for _, record := range s3Event.Records {
-		if !strings.HasSuffix(record.S3.Object.Key, IndexFile) {
-			bucketName := record.S3.Bucket.Name
-			err := GenerateIndexFiles(cfg, bucketName)
-			if err != nil {
-				return err
+		key := record.S3.Object.Key
+		if !strings.HasSuffix(key, IndexFile) {
+			if !strings.HasSuffix(key, "/") {
+				log.Printf("DEBUG/OBJ-KEY: %v", key)
+				bucketName := record.S3.Bucket.Name
+				err := GenerateIndexFiles(cfg, bucketName)
+				if err != nil {
+					return err
+				}
 			}
 		}
 	}

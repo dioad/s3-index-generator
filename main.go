@@ -62,7 +62,7 @@ func HandleRequest(ctx context.Context, s3Event events.S3Event) error {
 	//	lc, _ := lambdacontext.FromContext(ctx)
 
 	eventJson, _ := json.MarshalIndent(s3Event, "", "  ")
-	log.Printf("DEBUG/S3-EVENT: %v", eventJson)
+	log.Printf("DEBUG/S3-EVENT: %s", eventJson)
 
 	cfg := parseConfigFromEnvironment()
 	for _, record := range s3Event.Records {

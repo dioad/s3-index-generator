@@ -53,7 +53,7 @@ func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) (*ObjectTre
 }
 
 func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
-	f, err := destFS.OpenFile("/index.html", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err := destFS.OpenFile(IndexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
@@ -108,12 +108,12 @@ func getTemplate(cfg Config, sess *session.Session) *template.Template {
 		}
 	}
 
-	template, err := loadTemplates(templateFS)
+	tmpl, err := loadTemplates(templateFS)
 	if err != nil {
 		log.Fatalf("err: failed to load templates: %v", err)
 	}
 
-	return template
+	return tmpl
 }
 
 func GenerateIndexFiles(cfg Config, bucketName string) error {
@@ -124,8 +124,6 @@ func GenerateIndexFiles(cfg Config, bucketName string) error {
 			},
 		),
 	)
-
-	template := getTemplate(cfg, sess)
 
 	s3Client := s3.New(sess, &aws.Config{
 		DisableRestProtocolURICleaning: aws.Bool(true),
@@ -138,11 +136,17 @@ func GenerateIndexFiles(cfg Config, bucketName string) error {
 
 	var sp afero.Fs
 
-	serverSideEncryption := "AES256"
-	// bucketKeyEnabled := true
+	serverSideEncryption := &cfg.ServerSideEncryption
+	bucketKeyEnabled := true
+	if *serverSideEncryption == "" {
+		serverSideEncryption = nil
+		bucketKeyEnabled = false
+	}
+
 	fileProps := &aferos3.UploadedFileProperties{
-		ServerSideEncryption: &serverSideEncryption,
-		// BucketKeyEnabled: &bucketKeyEnabled,
+		//	ServerSideEncryption: &serverSideEncryption,
+		ServerSideEncryption: serverSideEncryption,
+		BucketKeyEnabled:     &bucketKeyEnabled,
 	}
 	sp = aferos3.NewFs(bucketName, sess)
 	sp.(*aferos3.Fs).FileProps = fileProps
@@ -150,14 +154,19 @@ func GenerateIndexFiles(cfg Config, bucketName string) error {
 	if cfg.LocalOutputDirectory != "" {
 		// if we're testing locally
 		o := afero.NewOsFs()
-		o.MkdirAll(cfg.LocalOutputDirectory, 0755)
+		mkdirErr := o.MkdirAll(cfg.LocalOutputDirectory, 0755)
+		if mkdirErr != nil {
+			return mkdirErr
+		}
 		sp = afero.NewBasePathFs(o, cfg.LocalOutputDirectory)
 	}
 
 	renderer := renderObjectTreeAsMultiPage
-	if cfg.IndexType == "singlepage" {
+	if cfg.IndexType == SinglePageIdentifier {
 		renderer = renderObjectTreeAsSinglePage
 	}
 
-	return renderer(t, template, cfg.IndexTemplate, sp)
+	tmpl := getTemplate(cfg, sess)
+
+	return renderer(t, tmpl, cfg.IndexTemplate, sp)
 }

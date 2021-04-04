@@ -12,11 +12,18 @@ import (
 	"github.com/aws/aws-lambda-go/lambda"
 )
 
+var (
+	SinglePageIdentifier = "singlepage"
+	MultiPageIdentifier  = "multipage"
+	IndexFile            = "index.html"
+)
+
 type Config struct {
 	TemplateBucketURL    *url.URL
 	IndexType            string
 	IndexTemplate        string
 	LocalOutputDirectory string
+	ServerSideEncryption string
 }
 
 func parseConfigFromEnvironment() Config {
@@ -25,9 +32,9 @@ func parseConfigFromEnvironment() Config {
 	var ok bool
 
 	if cfg.IndexType, ok = os.LookupEnv("INDEX_TYPE"); !ok {
-		cfg.IndexType = "multipage"
+		cfg.IndexType = MultiPageIdentifier
 	} else {
-		if cfg.IndexType != "multipage" && cfg.IndexType != "singlepage" {
+		if cfg.IndexType != MultiPageIdentifier && cfg.IndexType != SinglePageIdentifier {
 			log.Fatalf("err: expected multipage or singlepage, found %v", cfg.IndexType)
 		}
 	}
@@ -36,9 +43,7 @@ func parseConfigFromEnvironment() Config {
 		cfg.IndexTemplate = fmt.Sprintf("%v.index.html.tmpl", cfg.IndexType)
 	}
 
-	var templateBucketURLString string
-
-	if templateBucketURLString, ok = os.LookupEnv("TEMPLATE_BUCKET_URL"); ok {
+	if templateBucketURLString, ok := os.LookupEnv("TEMPLATE_BUCKET_URL"); ok {
 		tmpURL, err := url.Parse(templateBucketURLString)
 		if err != nil {
 			log.Fatalf("err: unable to parse TEMPLATE_BUCKET_URL as URL: %v", err)
@@ -46,13 +51,16 @@ func parseConfigFromEnvironment() Config {
 		cfg.TemplateBucketURL = tmpURL
 	}
 
+	// Can we figure these details out by looking at bucket config?
+	cfg.ServerSideEncryption, _ = os.LookupEnv("SSE")
+
 	return cfg
 }
 
 func HandleRequest(ctx context.Context, s3Event events.S3Event) error {
 	cfg := parseConfigFromEnvironment()
 	for _, record := range s3Event.Records {
-		if !strings.HasSuffix(record.S3.Object.Key, "index.html") {
+		if !strings.HasSuffix(record.S3.Object.Key, IndexFile) {
 			bucketName := record.S3.Bucket.Name
 			err := GenerateIndexFiles(cfg, bucketName)
 			if err != nil {

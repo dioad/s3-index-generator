@@ -106,7 +106,7 @@ jobs:
            --content-type "application/zip" \
            --no-progress \
            --sse AES256
-        aws s3 cp ${{ env.OUTPUT_ZIP }}_SHA256SUMS s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/${{ needs.metadata.outputs.version }}/${{ env.OUTPUT_ZIP }}_SHA256SUMS \
+        aws s3 cp ${{ env.OUTPUT_ZIP }}_SHA256SUMS s3://${{ env.AWS_S3_BUCKET }}/${{ github.event.repository.name }}/build/${{ env.OUTPUT_ZIP }}_SHA256SUMS \
            --no-guess-mime-type \
            --content-type "text/plain" \
            --no-progress \

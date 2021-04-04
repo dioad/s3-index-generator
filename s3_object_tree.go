@@ -21,7 +21,7 @@ func (t *ObjectTree) AddObject(obj *s3.Object) {
 	if t.Objects == nil {
 		t.Objects = make([]*s3.Object, 0)
 	}
-	if !strings.HasSuffix(*obj.Key, "index.html") {
+	if !strings.HasSuffix(*obj.Key, IndexFile) {
 		if !strings.HasSuffix(*obj.Key, "/") {
 			t.Objects = append(t.Objects, obj)
 		}

@@ -3,11 +3,11 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
-	"strings"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -20,6 +20,7 @@ var (
 )
 
 type Config struct {
+	Bucket               string
 	TemplateBucketURL    *url.URL
 	IndexType            string
 	IndexTemplate        string
@@ -27,10 +28,12 @@ type Config struct {
 	ServerSideEncryption string
 }
 
-func parseConfigFromEnvironment() Config {
+func parseConfigFromEnvironment() (Config) {
 	var cfg Config
 
 	var ok bool
+
+	cfg.Bucket, _ = os.LookupEnv("BUCKET")
 
 	if cfg.IndexType, ok = os.LookupEnv("INDEX_TYPE"); !ok {
 		cfg.IndexType = MultiPageIdentifier
@@ -58,28 +61,17 @@ func parseConfigFromEnvironment() Config {
 	return cfg
 }
 
-func HandleRequest(ctx context.Context, s3Event events.S3Event) error {
+func HandleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 	//	lc, _ := lambdacontext.FromContext(ctx)
-
-	eventJson, _ := json.MarshalIndent(s3Event, "", "  ")
+	eventJson, _ := json.MarshalIndent(event, "", "  ")
 	log.Printf("%v", eventJson)
 
 	cfg := parseConfigFromEnvironment()
-	for _, record := range s3Event.Records {
-		key := record.S3.Object.Key
-		if strings.HasSuffix(key, IndexFile) || strings.HasSuffix(key, "/") {
-			continue
-		}
-
-		bucketName := record.S3.Bucket.Name
-		log.Printf("Processing obj %v from %v", key, bucketName)
-		err := GenerateIndexFiles(cfg, bucketName)
-		if err != nil {
-			return err
-		}
+	if cfg.Bucket == "" {
+		return errors.New("no BUCKET environment variable specified")
 	}
 
-	return nil
+	return GenerateIndexFiles(cfg, cfg.Bucket)
 }
 
 func main() {

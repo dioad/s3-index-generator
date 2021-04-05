@@ -3,12 +3,14 @@ package main
 import (
 	"embed"
 	"errors"
+	"fmt"
 	"html/template"
 	"io/fs"
 	"log"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	aferos3 "github.com/fclairamb/afero-s3"
@@ -143,8 +145,10 @@ func GenerateIndexFiles(cfg Config, bucketName string) error {
 		bucketKeyEnabled = false
 	}
 
+	cacheControl := fmt.Sprintf("max-age=%v", (time.Minute/time.Second)*5)
+
 	fileProps := &aferos3.UploadedFileProperties{
-		//	ServerSideEncryption: &serverSideEncryption,
+		CacheControl:         &cacheControl,
 		ServerSideEncryption: serverSideEncryption,
 		BucketKeyEnabled:     &bucketKeyEnabled,
 	}

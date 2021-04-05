@@ -28,7 +28,7 @@ type Config struct {
 	ServerSideEncryption string
 }
 
-func parseConfigFromEnvironment() (Config) {
+func parseConfigFromEnvironment() Config {
 	var cfg Config
 
 	var ok bool
@@ -64,7 +64,7 @@ func parseConfigFromEnvironment() (Config) {
 func HandleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 	//	lc, _ := lambdacontext.FromContext(ctx)
 	eventJson, _ := json.MarshalIndent(event, "", "  ")
-	log.Printf("%v", eventJson)
+	log.Printf("%s", eventJson)
 
 	cfg := parseConfigFromEnvironment()
 	if cfg.Bucket == "" {

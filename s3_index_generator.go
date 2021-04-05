@@ -56,6 +56,7 @@ func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) (*ObjectTre
 		ExcludeKey("index.html"),
 		ExcludePrefix("."),
 		ExcludeSuffix("/"),
+		ExcludeSuffix("/index.html"),
 	}
 
 	AddObjectsToTree(t, objects.Contents)
@@ -145,6 +146,8 @@ func GenerateIndexFiles(cfg Config, bucketName string) error {
 		return err
 	}
 
+	// PrintTree(log.Writer(), t)
+
 	var sp afero.Fs
 
 	serverSideEncryption := &cfg.ServerSideEncryption
@@ -154,7 +157,7 @@ func GenerateIndexFiles(cfg Config, bucketName string) error {
 		bucketKeyEnabled = false
 	}
 
-	cacheControl := fmt.Sprintf("max-age=%v", (time.Minute/time.Second)*5)
+	cacheControl := fmt.Sprintf("max-age=%d", (time.Minute/time.Second)*5)
 
 	fileProps := &aferos3.UploadedFileProperties{
 		CacheControl:         &cacheControl,

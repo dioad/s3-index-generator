@@ -42,3 +42,41 @@ func TestObjectTree(t *testing.T) {
 		t.Fatalf("exptect children of `a` length 1, got %v", bObjLen)
 	}
 }
+
+func TestExclusions(t *testing.T) {
+	tests := map[string]struct {
+		objectKey  string
+		exclusions Exclusions
+		include    bool
+	}{
+		"key exclude blah.zip": {
+			objectKey:  "blah.zip",
+			exclusions: Exclusions{ExcludeKey("blah.zip")},
+			include:    false,
+		},
+		"suffix exclude index.html": {
+			objectKey:  "index.html",
+			exclusions: Exclusions{ExcludeSuffix("index.html")},
+			include:    false,
+		},
+		"suffix include blah.zip": {
+			objectKey:  "blah.zip",
+			exclusions: Exclusions{ExcludeSuffix("index.html")},
+			include:    true,
+		},
+		"prefix exclude .asdf/ prefix": {
+			objectKey:  ".asdf/blah",
+			exclusions: Exclusions{ExcludePrefix(".")},
+			include:    false,
+		},
+	}
+
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			include := tc.exclusions.Include(tc.objectKey)
+			if include != tc.include {
+				t.Fatalf("got %v, expected %v", include, tc.include)
+			}
+		})
+	}
+}

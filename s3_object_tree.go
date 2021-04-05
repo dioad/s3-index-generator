@@ -11,20 +11,58 @@ import (
 )
 
 type ObjectTree struct {
-	FullPath string
-	DirName  string
-	Objects  []*s3.Object
-	Children map[string]*ObjectTree
+	FullPath   string
+	DirName    string
+	Objects    []*s3.Object
+	Children   map[string]*ObjectTree
+	Exclusions Exclusions
+}
+
+type ExcludeFunc func(string) bool
+
+type Exclusions []ExcludeFunc
+
+func (e Exclusions) Include(key string) bool {
+	include := true
+	for _, excludeFunc := range e {
+		if excludeFunc(key) {
+			include = false
+		}
+	}
+	return include
+}
+
+func ExcludeKey(key string) ExcludeFunc {
+	return func(path string) bool {
+		return key == path
+	}
+}
+
+func ExcludePrefix(prefix string) ExcludeFunc {
+	return func(path string) bool {
+		return strings.HasPrefix(path, prefix)
+	}
+}
+
+func ExcludeSuffix(suffix string) ExcludeFunc {
+	return func(path string) bool {
+		return strings.HasSuffix(path, suffix)
+	}
+}
+func (t *ObjectTree) AddExclusion(f ExcludeFunc) {
+	if t.Exclusions == nil {
+		t.Exclusions = make(Exclusions, 0)
+	}
+	t.Exclusions = append(t.Exclusions, f)
 }
 
 func (t *ObjectTree) AddObject(obj *s3.Object) {
 	if t.Objects == nil {
 		t.Objects = make([]*s3.Object, 0)
 	}
-	if !strings.HasSuffix(*obj.Key, IndexFile) {
-		if !strings.HasSuffix(*obj.Key, "/") {
-			t.Objects = append(t.Objects, obj)
-		}
+
+	if t.Exclusions.Include(*obj.Key) {
+		t.Objects = append(t.Objects, obj)
 	}
 }
 
@@ -32,6 +70,11 @@ func (t *ObjectTree) AddChild(name string) *ObjectTree {
 	if t.Children == nil {
 		t.Children = make(map[string]*ObjectTree, 0)
 	}
+
+	if !t.Exclusions.Include(name) {
+		return nil
+	}
+
 	if _, exists := t.Children[name]; !exists {
 		t.Children[name] = &ObjectTree{
 			DirName:  name,
@@ -100,15 +143,23 @@ func AddObjectToTree(t *ObjectTree, obj *s3.Object) {
 	}
 }
 
-func CreateObjectTree(objects []*s3.Object) *ObjectTree {
-	t := &ObjectTree{
-		FullPath: "/",
-		DirName:  "/",
-	}
-
+func AddObjectsToTree(t *ObjectTree, objects []*s3.Object) {
 	for _, o := range objects {
 		AddObjectToTree(t, o)
 	}
+}
+
+func NewRootObjectTree() *ObjectTree {
+	return &ObjectTree{
+		FullPath: "/",
+		DirName:  "/",
+	}
+}
+
+func CreateObjectTree(objects []*s3.Object) *ObjectTree {
+	t := NewRootObjectTree()
+
+	AddObjectsToTree(t, objects)
 
 	return t
 }

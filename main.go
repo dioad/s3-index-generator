@@ -67,14 +67,15 @@ func HandleRequest(ctx context.Context, s3Event events.S3Event) error {
 	cfg := parseConfigFromEnvironment()
 	for _, record := range s3Event.Records {
 		key := record.S3.Object.Key
-		if !strings.HasSuffix(key, IndexFile) {
-			if !strings.HasSuffix(key, "/") {
-				bucketName := record.S3.Bucket.Name
-				err := GenerateIndexFiles(cfg, bucketName)
-				if err != nil {
-					return err
-				}
-			}
+		if strings.HasSuffix(key, IndexFile) || strings.HasSuffix(key, "/") {
+			continue
+		}
+
+		bucketName := record.S3.Bucket.Name
+		log.Printf("Processing obj %v from %v", key, bucketName)
+		err := GenerateIndexFiles(cfg, bucketName)
+		if err != nil {
+			return err
 		}
 	}
 

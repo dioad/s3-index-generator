@@ -55,6 +55,7 @@ func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) (*ObjectTre
 	t.Exclusions = Exclusions{
 		ExcludeKey("index.html"),
 		ExcludePrefix("."),
+		ExcludeSuffix("/"),
 	}
 
 	AddObjectsToTree(t, objects.Contents)

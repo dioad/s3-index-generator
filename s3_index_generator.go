@@ -53,6 +53,7 @@ func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) (*ObjectTre
 
 	t := NewRootObjectTree()
 	t.Exclusions = Exclusions{
+		ExcludeKey("favicon.ico"),
 		ExcludeKey("index.html"),
 		ExcludePrefix("."),
 		ExcludeSuffix("/"),

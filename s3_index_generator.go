@@ -42,9 +42,10 @@ func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) (*ObjectTree, error) {
+func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string, objectPrefix string) (*ObjectTree, error) {
 	objInput := s3.ListObjectsInput{
 		Bucket: &objectBucketName,
+		Prefix: &objectPrefix,
 	}
 	objects, err := s3Client.ListObjects(&objInput)
 	if err != nil {
@@ -52,6 +53,7 @@ func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) (*ObjectTre
 	}
 
 	t := NewRootObjectTree()
+	t.PrefixToStrip = objectPrefix
 	t.Exclusions = Exclusions{
 		ExcludeKey("favicon.ico"),
 		ExcludeKey("index.html"),
@@ -65,6 +67,11 @@ func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string) (*ObjectTre
 	return t, nil
 }
 
+type Page struct {
+	Nonce      string
+	ObjectTree *ObjectTree
+}
+
 func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
 	f, err := destFS.OpenFile(IndexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
@@ -72,7 +79,12 @@ func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Templat
 	}
 	defer f.Close()
 
-	return tmpl.ExecuteTemplate(f, templateName, objectTree)
+	p := Page{
+		Nonce:      "asdf",
+		ObjectTree: objectTree,
+	}
+
+	return tmpl.ExecuteTemplate(f, templateName, p)
 }
 
 func renderObjectTreeAsMultiPage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
@@ -129,7 +141,7 @@ func getTemplate(cfg Config, sess *session.Session) *template.Template {
 	return tmpl
 }
 
-func GenerateIndexFiles(cfg Config, bucketName string) error {
+func GenerateIndexFiles(cfg Config) error {
 	sess := session.Must(
 		session.NewSessionWithOptions(
 			session.Options{
@@ -142,7 +154,7 @@ func GenerateIndexFiles(cfg Config, bucketName string) error {
 		DisableRestProtocolURICleaning: aws.Bool(true),
 	})
 
-	t, err := fetchBucketObjectTree(s3Client, bucketName)
+	t, err := fetchBucketObjectTree(s3Client, cfg.Bucket, cfg.ObjectPrefix)
 	if err != nil {
 		return err
 	}
@@ -165,7 +177,7 @@ func GenerateIndexFiles(cfg Config, bucketName string) error {
 		ServerSideEncryption: serverSideEncryption,
 		BucketKeyEnabled:     &bucketKeyEnabled,
 	}
-	sp = aferos3.NewFs(bucketName, sess)
+	sp = aferos3.NewFs(cfg.Bucket, sess)
 	sp.(*aferos3.Fs).FileProps = fileProps
 
 	if cfg.LocalOutputDirectory != "" {

@@ -2,9 +2,10 @@
 <html>
 <head>
     <meta charset="UTF-8" />
-    <title>({{ .FullPath }})</title>
+    <title>({{ .ObjectTree.FullPath }})</title>
     <meta name=viewport content="width=device-width, initial-scale=1" />
-    <style type="text/css">
+    <meta http-equiv="Content-Security-Policy" content="style-src 'self' 'nonce-{{ .Nonce }}'">
+    <style type="text/css" nonce="{{ .Nonce }}">
     html {
       position: relative;
       min-height: 100%;
@@ -39,13 +40,13 @@
 <body>
 <div>
     <ul>
-        {{ if ne .DirName  "/" }}
+        {{ if ne .ObjectTree.DirName  "/" }}
             <li><a href="../index.html">../</a></li>
         {{ end }}
-        {{ range $key, $value := .Children }}
+        {{ range $key, $value := .ObjectTree.Children }}
             <li><a href="{{ $value.DirName }}/index.html">{{ $value.DirName }}/</a></li>
         {{ end }}
-        {{ range  .Objects }}
+        {{ range  .ObjectTree.Objects }}
             <li><a href="/{{ .Key }}">{{ .Key | ObjectBaseName }}</a> {{ .LastModified }}</li>
         {{ end }}
     </ul>

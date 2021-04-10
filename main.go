@@ -21,11 +21,13 @@ var (
 
 type Config struct {
 	Bucket               string
+	ObjectPrefix         string
 	TemplateBucketURL    *url.URL
+	IndexPrefix          string
 	IndexType            string
 	IndexTemplate        string
-	LocalOutputDirectory string
 	ServerSideEncryption string
+	LocalOutputDirectory string
 }
 
 func parseConfigFromEnvironment() Config {
@@ -34,6 +36,7 @@ func parseConfigFromEnvironment() Config {
 	var ok bool
 
 	cfg.Bucket, _ = os.LookupEnv("BUCKET")
+	cfg.ObjectPrefix, _ = os.LookupEnv("OBJECT_PREFIX")
 
 	if cfg.IndexType, ok = os.LookupEnv("INDEX_TYPE"); !ok {
 		cfg.IndexType = MultiPageIdentifier
@@ -71,7 +74,7 @@ func HandleRequest(ctx context.Context, event events.CloudWatchEvent) error {
 		return errors.New("no BUCKET environment variable specified")
 	}
 
-	return GenerateIndexFiles(cfg, cfg.Bucket)
+	return GenerateIndexFiles(cfg)
 }
 
 func main() {
@@ -80,10 +83,11 @@ func main() {
 	} else {
 		if len(os.Args) >= 2 {
 			cfg := parseConfigFromEnvironment()
+			cfg.Bucket = os.Args[1]
 			if len(os.Args) == 3 {
 				cfg.LocalOutputDirectory = os.Args[2]
 			}
-			err := GenerateIndexFiles(cfg, os.Args[1])
+			err := GenerateIndexFiles(cfg)
 			if err != nil {
 				fmt.Printf("err: %v\n", err)
 			}

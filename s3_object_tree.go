@@ -11,11 +11,14 @@ import (
 )
 
 type ObjectTree struct {
-	FullPath   string
-	DirName    string
-	Objects    []*s3.Object
-	Children   map[string]*ObjectTree
-	Exclusions Exclusions
+	Title         string // extract to Page
+	Nonce         string // extract to Page
+	FullPath      string
+	DirName       string
+	Objects       []*s3.Object
+	Children      map[string]*ObjectTree
+	Exclusions    Exclusions
+	PrefixToStrip string
 }
 
 type ExcludeFunc func(string) bool
@@ -151,6 +154,9 @@ func AddObjectToTree(t *ObjectTree, obj *s3.Object) {
 	if len(parts) == 1 {
 		t.AddObject(obj)
 	} else {
+		if parts[0] == t.PrefixToStrip {
+			parts = parts[1:]
+		}
 		AddPathToTree(t, parts, obj)
 	}
 }

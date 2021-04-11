@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/url"
@@ -22,7 +23,10 @@ import (
 )
 
 //go:embed templates
-var staticFS embed.FS
+var defaultTemplateFS embed.FS
+
+//go:embed static
+var defaultStaticFS embed.FS
 
 func ObjectBaseName(objKey string) string {
 	parts := strings.Split(objKey, "/")
@@ -122,23 +126,68 @@ func IOFSFromS3URL(sess *session.Session, url *url.URL) (fs.FS, error) {
 	return ioFS, nil
 }
 
-func getTemplate(cfg Config, sess *session.Session) *template.Template {
-	var templateFS fs.FS
-	var err error
-	templateFS = staticFS
-	if cfg.TemplateBucketURL != nil {
-		templateFS, err = IOFSFromS3URL(sess, cfg.TemplateBucketURL)
+func getFSFromBucketURL(bucketURL *url.URL, sess *session.Session) (fs.FS, error) {
+	if bucketURL != nil {
+		fs, err := IOFSFromS3URL(sess, bucketURL)
 		if err != nil {
-			log.Fatalf("err: failed to load FS from %v: %v", cfg.TemplateBucketURL.Redacted(), err)
+			return nil, errors.New(fmt.Sprintf("failed to load FS from %v: %v", bucketURL.Redacted(), err))
+		}
+		return fs, nil
+	}
+	return nil, nil
+}
+
+func getFSFromS3URLOrDefault(s3URL *url.URL, sess *session.Session, defaultFS fs.FS) (fs.FS, error) {
+	var fs fs.FS
+	var err error
+	fs = defaultFS
+	if s3URL != nil {
+		fs, err = getFSFromBucketURL(s3URL, sess)
+		if err != nil {
+			return nil, err
+
 		}
 	}
+	return fs, nil
+}
 
-	tmpl, err := loadTemplates(templateFS)
-	if err != nil {
-		log.Fatalf("err: failed to load templates: %v", err)
+func CopyFile(srcFS fs.FS, destFS afero.Fs) fs.WalkDirFunc {
+
+	return func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			destFS.MkdirAll(d.Name(), 0755)
+			return nil
+		}
+
+		if !d.IsDir() {
+			srcFile, err := srcFS.Open(path)
+			if err != nil {
+				return err
+			}
+			destFile, err := destFS.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+			if err != nil {
+				return err
+			}
+
+			_, err = io.Copy(destFile, srcFile)
+			if err != nil {
+				return err
+			}
+
+			defer destFile.Close()
+			defer srcFile.Close()
+		}
+		return nil
 	}
+}
 
-	return tmpl
+func copyStaticFiles(srcFS fs.FS, srcPath string, destFS afero.Fs, destPath string) error {
+	f := CopyFile(srcFS, destFS)
+	return fs.WalkDir(srcFS, srcPath, f)
 }
 
 func GenerateIndexFiles(cfg Config) error {
@@ -195,7 +244,25 @@ func GenerateIndexFiles(cfg Config) error {
 		renderer = renderObjectTreeAsSinglePage
 	}
 
-	tmpl := getTemplate(cfg, sess)
+	tmplFS, err := getFSFromS3URLOrDefault(cfg.TemplateBucketURL, sess, defaultTemplateFS)
+	if err != nil {
+		log.Fatalf("err: failed to load templates from bucket %v: %v", cfg.TemplateBucketURL, err)
+	}
+	tmpl, err := loadTemplates(tmplFS)
+	if err != nil {
+		log.Fatalf("err: failed to load templates: %v", err)
+	}
+
+	staticFS, err := getFSFromS3URLOrDefault(cfg.StaticBucketURL, sess, defaultStaticFS)
+	if err != nil {
+		log.Fatalf("err: failed to load static assets from bucket %v: %v", cfg.StaticBucketURL, err)
+	}
+
+	// copy static
+	err = copyStaticFiles(staticFS, "static", sp, "static")
+	if err != nil {
+		log.Fatalf("err: failed to copy static files %v", err)
+	}
 
 	return renderer(t, tmpl, cfg.IndexTemplate, sp)
 }

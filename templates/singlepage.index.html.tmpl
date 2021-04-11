@@ -4,38 +4,7 @@
     <meta charset="UTF-8" />
     <title>Test</title>
     <meta name=viewport content="width=device-width, initial-scale=1" />
-    <meta http-equiv="Content-Security-Policy" content="style-src 'self' 'nonce-{{ .Nonce }}'">
-    <style type="text/css" nonce="{{ .Nonce }}">
-    html {
-      position: relative;
-      min-height: 100%;
-    }
-
-    body {
-      font-family: monospace;
-      font-size: 14px;
-      margin: 0 0 50px;
-    }
-
-    a {
-      text-decoration: none;
-    }
-
-    a:hover {
-      text-decoration: underline;
-    }
-
-    ul {
-      list-style-type: none;
-      margin: 0;
-      padding: 0;
-    }
-
-    li {
-      margin: 1em;
-      padding: 0;
-    }
-    </style>
+    <link rel="stylesheet" href="/static/style.css">
 </head>
     <body>
             <div>

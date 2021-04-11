@@ -23,6 +23,7 @@ type Config struct {
 	Bucket               string
 	ObjectPrefix         string
 	TemplateBucketURL    *url.URL
+	StaticBucketURL      *url.URL
 	IndexPrefix          string
 	IndexType            string
 	IndexTemplate        string
@@ -56,6 +57,14 @@ func parseConfigFromEnvironment() Config {
 			log.Fatalf("err: unable to parse TEMPLATE_BUCKET_URL as URL: %v", err)
 		}
 		cfg.TemplateBucketURL = tmpURL
+	}
+
+	if staticBucketURLString, ok := os.LookupEnv("STATIC_BUCKET_URL"); ok {
+		tmpURL, err := url.Parse(staticBucketURLString)
+		if err != nil {
+			log.Fatalf("err: unable to parse STATIC_BUCKET_URL as URL: %v", err)
+		}
+		cfg.StaticBucketURL = tmpURL
 	}
 
 	// Can we figure these details out by looking at bucket config?

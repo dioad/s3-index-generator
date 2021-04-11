@@ -12,6 +12,7 @@ binary takes one argument which is the bucket name.
 |-----------------------|----------|---------------------------------|-------------|
 | `INDEX_TYPE`          | No       | `multipage`                     |             |
 | `TEMPLATE_BUCKET_URL` | No       |                                 | S3 URL in the form `s3://bucket/path`. Expects templates (defined below) in a subdirectory called `templates/`. So if this is set to `s3://bucket/path` it will expect templates to be stored in `s3://bucket/path/templates/singlepage.index.html` |
+| `STATIC_BUCKET_URL` | No       |                                 | S3 URL in the form `s3://bucket/path`. Expects static assets in a subdirectory called `static/`. So if this is set to `s3://bucket/path` it will expect templates to be stored in `s3://bucket/path/static/style.css` |
 | `INDEX_TEMPLATE`      | No       | `${INDEX_TYPE}.index.html.tmpl` |             |
 
 # Custom Templates

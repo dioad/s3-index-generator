@@ -139,27 +139,27 @@ func IOFSFromS3URL(sess *session.Session, url *url.URL) (fs.FS, error) {
 
 func getFSFromBucketURL(bucketURL *url.URL, sess *session.Session) (fs.FS, error) {
 	if bucketURL != nil {
-		fs, err := IOFSFromS3URL(sess, bucketURL)
+		s3Fs, err := IOFSFromS3URL(sess, bucketURL)
 		if err != nil {
-			return nil, errors.New(fmt.Sprintf("failed to load FS from %v: %v", bucketURL.Redacted(), err))
+			return nil, fmt.Errorf("failed to load FS from %v: %v", bucketURL.Redacted(), err)
 		}
-		return fs, nil
+		return s3Fs, nil
 	}
 	return nil, nil
 }
 
 func getFSFromS3URLOrDefault(s3URL *url.URL, sess *session.Session, defaultFS fs.FS) (fs.FS, error) {
-	var fs fs.FS
+	var f fs.FS
 	var err error
-	fs = defaultFS
+	f = defaultFS
 	if s3URL != nil {
-		fs, err = getFSFromBucketURL(s3URL, sess)
+		f, err = getFSFromBucketURL(s3URL, sess)
 		if err != nil {
 			return nil, err
 
 		}
 	}
-	return fs, nil
+	return f, nil
 }
 
 func CopyFile(srcFS fs.FS, destFS afero.Fs) fs.WalkDirFunc {
@@ -170,23 +170,26 @@ func CopyFile(srcFS fs.FS, destFS afero.Fs) fs.WalkDirFunc {
 		}
 
 		if d.IsDir() {
-			destFS.MkdirAll(d.Name(), 0755)
+			mkdirErr := destFS.MkdirAll(d.Name(), 0755)
+			if mkdirErr != nil {
+				return fmt.Errorf("failed to mkdir: %v", err)
+			}
 			return nil
 		}
 
 		if !d.IsDir() {
 			srcFile, err := srcFS.Open(path)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to open source path: %v", err)
 			}
 			destFile, err := destFS.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to open destination path: %v", err)
 			}
 
 			_, err = io.Copy(destFile, srcFile)
 			if err != nil {
-				return err
+				return fmt.Errorf("failed to copy: %v", err)
 			}
 
 			defer destFile.Close()

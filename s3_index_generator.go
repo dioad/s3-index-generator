@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rand"
 	"embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"html/template"
@@ -76,6 +78,15 @@ type Page struct {
 	ObjectTree *ObjectTree
 }
 
+func nonce() string {
+	nonce := make([]byte, 6)
+	_, err := rand.Read(nonce)
+	if err != nil {
+		log.Fatalf("failed to generate nonce: %v", err)
+	}
+	return base64.StdEncoding.EncodeToString(nonce)
+}
+
 func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
 	f, err := destFS.OpenFile(IndexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
@@ -84,7 +95,7 @@ func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Templat
 	defer f.Close()
 
 	p := Page{
-		Nonce:      "asdf",
+		Nonce:      nonce(),
 		ObjectTree: objectTree,
 	}
 

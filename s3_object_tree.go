@@ -1,10 +1,7 @@
 package main
 
 import (
-	"fmt"
-	"io"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -79,7 +76,7 @@ func (t *ObjectTree) AddObject(obj *s3.Object) {
 
 func (t *ObjectTree) AddChild(name string) *ObjectTree {
 	if t.Children == nil {
-		t.Children = make(map[string]*ObjectTree, 0)
+		t.Children = make(map[string]*ObjectTree)
 	}
 
 	//log.Printf("AddChild:Include: %v", name)
@@ -109,34 +106,6 @@ type ByChildKey []string
 func (k ByChildKey) Len() int           { return len(k) }
 func (k ByChildKey) Swap(i, j int)      { k[i], k[j] = k[j], k[i] }
 func (k ByChildKey) Less(i, j int) bool { return k[i] < k[j] }
-
-func printTree(out io.Writer, t *ObjectTree, indent int) {
-	var prefix string
-	for i := 0; i < indent; i++ {
-		prefix = fmt.Sprintf("%v ", prefix)
-	}
-
-	childKeys := make([]string, 0, len(t.Children))
-	for k := range t.Children {
-		childKeys = append(childKeys, k)
-	}
-
-	sort.Sort(ByChildKey(childKeys))
-	for _, c := range childKeys {
-		fmt.Fprintf(out, "%v%v/\n", prefix, c)
-		printTree(out, t.Children[c], indent+1)
-	}
-
-	sort.Sort(ByObjectKey(t.Objects))
-	for _, o := range t.Objects {
-		parts := strings.Split(*o.Key, "/")
-		fmt.Fprintf(out, "%v%v\n", prefix, parts[len(parts)-1])
-	}
-}
-
-func PrintTree(out io.Writer, t *ObjectTree) {
-	printTree(out, t, 0)
-}
 
 func AddPathToTree(t *ObjectTree, pathParts []string, obj *s3.Object) {
 	if len(pathParts) == 1 {

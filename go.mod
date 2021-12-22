@@ -8,5 +8,5 @@ require (
 	github.com/aws/aws-lambda-go v1.27.0
 	github.com/aws/aws-sdk-go v1.42.19
 	github.com/fclairamb/afero-s3 v0.3.0
-	github.com/spf13/afero v1.6.0
+	github.com/spf13/afero v1.7.0
 )

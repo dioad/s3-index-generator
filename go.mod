@@ -6,7 +6,7 @@ replace github.com/fclairamb/afero-s3 v0.3.0 => github.com/patdowney/afero-s3 v0
 
 require (
 	github.com/aws/aws-lambda-go v1.28.0
-	github.com/aws/aws-sdk-go v1.42.44
+	github.com/aws/aws-sdk-go v1.42.52
 	github.com/fclairamb/afero-s3 v0.3.0
 	github.com/spf13/afero v1.8.0
 )

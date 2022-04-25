@@ -73,7 +73,7 @@ func parseConfigFromEnvironment() Config {
 	return cfg
 }
 
-func HandleRequest(ctx context.Context, event events.CloudWatchEvent) error {
+func HandleRequest(ctx context.Context, event events.S3Event) error {
 	//	lc, _ := lambdacontext.FromContext(ctx)
 	eventJson, _ := json.MarshalIndent(event, "", "  ")
 	log.Printf("%s", eventJson)

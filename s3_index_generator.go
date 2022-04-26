@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
+	"github.com/aws/aws-xray-sdk-go/xray"
 	aferos3 "github.com/fclairamb/afero-s3"
 
 	//"github.com/aws/aws-sdk-go/aws/credentials"
@@ -216,6 +217,7 @@ func GenerateIndexFiles(cfg Config) error {
 	s3Client := s3.New(sess, &aws.Config{
 		DisableRestProtocolURICleaning: aws.Bool(true),
 	})
+	xray.AWS(s3Client.Client)
 
 	t, err := fetchBucketObjectTree(s3Client, cfg.Bucket, cfg.ObjectPrefix)
 	if err != nil {

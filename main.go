@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
@@ -74,7 +75,7 @@ func parseConfigFromEnvironment() Config {
 }
 
 func HandleRequest(ctx context.Context, event events.S3Event) error {
-	//	lc, _ := lambdacontext.FromContext(ctx)
+	// lc, _ := lambdacontext.FromContext(ctx)
 	eventJson, _ := json.MarshalIndent(event, "", "  ")
 	log.Printf("%s", eventJson)
 
@@ -83,7 +84,12 @@ func HandleRequest(ctx context.Context, event events.S3Event) error {
 		return errors.New("no BUCKET environment variable specified")
 	}
 
-	return GenerateIndexFiles(cfg)
+	startTime := time.Now()
+	err := GenerateIndexFiles(cfg)
+	endTime := time.Now()
+	log.Printf("GenerateIndexFiles: duration:%v\n", endTime.Sub(startTime))
+
+	return err
 }
 
 func main() {

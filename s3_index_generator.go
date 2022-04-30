@@ -219,11 +219,14 @@ func GenerateIndexFiles(cfg Config) error {
 	})
 	xray.AWS(s3Client.Client)
 
+	startTime := time.Now()
 	t, err := fetchBucketObjectTree(s3Client, cfg.Bucket, cfg.ObjectPrefix)
+	endTime := time.Now()
 	if err != nil {
 		return err
 	}
 
+	log.Printf("fetchBucketObjectTree: duration:%v\n", (endTime.Sub(startTime)))
 	// PrintTree(log.Writer(), t)
 
 	var sp afero.Fs
@@ -255,19 +258,28 @@ func GenerateIndexFiles(cfg Config) error {
 		sp = afero.NewBasePathFs(o, cfg.LocalOutputDirectory)
 	}
 
+	// select renderer
 	renderer := renderObjectTreeAsMultiPage
 	if cfg.IndexType == SinglePageIdentifier {
 		renderer = renderObjectTreeAsSinglePage
 	}
+	// end select renderer
+
+	// STart of load templates
 
 	tmplFS, err := getFSFromS3URLOrDefault(cfg.TemplateBucketURL, sess, defaultTemplateFS)
 	if err != nil {
 		log.Fatalf("err: failed to load templates from bucket %v: %v", cfg.TemplateBucketURL, err)
 	}
+
+	startTime = time.Now()
 	tmpl, err := loadTemplates(tmplFS)
 	if err != nil {
 		log.Fatalf("err: failed to load templates: %v", err)
 	}
+	endTime = time.Now()
+	log.Printf("loadTemplates: duration:%v\n", endTime.Sub(startTime))
+	// End of load templates
 
 	staticFS, err := getFSFromS3URLOrDefault(cfg.StaticBucketURL, sess, defaultStaticFS)
 	if err != nil {
@@ -275,10 +287,18 @@ func GenerateIndexFiles(cfg Config) error {
 	}
 
 	// copy static
+	startTime = time.Now()
 	err = copyStaticFiles(staticFS, "static", sp, "static")
 	if err != nil {
 		log.Fatalf("err: failed to copy static files %v", err)
 	}
+	endTime = time.Now()
+	log.Printf("copyStaticFiles: duration:%v\n", endTime.Sub(startTime))
+
+	startTime = time.Now()
+	err = renderer(t, tmpl, cfg.IndexTemplate, sp)
+	endTime = time.Now()
+	log.Printf("render: duration:%v\n", endTime.Sub(startTime))
 
 	return renderer(t, tmpl, cfg.IndexTemplate, sp)
 }

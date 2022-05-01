@@ -85,7 +85,7 @@ func HandleRequest(ctx context.Context, event events.S3Event) error {
 	}
 
 	startTime := time.Now()
-	err := GenerateIndexFiles(cfg)
+	err := GenerateIndexFiles(ctx, cfg)
 	endTime := time.Now()
 	log.Printf("GenerateIndexFiles: duration:%v\n", endTime.Sub(startTime))
 
@@ -102,7 +102,8 @@ func main() {
 			if len(os.Args) == 3 {
 				cfg.LocalOutputDirectory = os.Args[2]
 			}
-			err := GenerateIndexFiles(cfg)
+			ctx := context.Background()
+			err := GenerateIndexFiles(ctx, cfg)
 			if err != nil {
 				fmt.Printf("err: %v\n", err)
 			}

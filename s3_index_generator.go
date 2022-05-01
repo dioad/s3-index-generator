@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
@@ -205,7 +206,7 @@ func copyStaticFiles(srcFS fs.FS, srcPath string, destFS afero.Fs, destPath stri
 	return fs.WalkDir(srcFS, srcPath, f)
 }
 
-func GenerateIndexFiles(cfg Config) error {
+func GenerateIndexFiles(ctx context.Context, cfg Config) error {
 	sess := session.Must(
 		session.NewSessionWithOptions(
 			session.Options{
@@ -219,15 +220,16 @@ func GenerateIndexFiles(cfg Config) error {
 	})
 	xray.AWS(s3Client.Client)
 
-	startTime := time.Now()
-	t, err := fetchBucketObjectTree(s3Client, cfg.Bucket, cfg.ObjectPrefix)
-	endTime := time.Now()
+	var t *ObjectTree
+	err := xray.Capture(ctx, "fetchBucketObjectTree", func(c context.Context) error {
+		var err error
+		t, err = fetchBucketObjectTree(s3Client, cfg.Bucket, cfg.ObjectPrefix)
+		//endTime := time.Now()
+		return err
+	})
 	if err != nil {
 		return err
 	}
-
-	log.Printf("fetchBucketObjectTree: duration:%v\n", (endTime.Sub(startTime)))
-	// PrintTree(log.Writer(), t)
 
 	var sp afero.Fs
 
@@ -272,14 +274,15 @@ func GenerateIndexFiles(cfg Config) error {
 		log.Fatalf("err: failed to load templates from bucket %v: %v", cfg.TemplateBucketURL, err)
 	}
 
-	startTime = time.Now()
-	tmpl, err := loadTemplates(tmplFS)
+	var tmpl *template.Template
+	err = xray.Capture(ctx, "loadTemplates", func(c context.Context) error {
+
+		tmpl, err = loadTemplates(tmplFS)
+		return err
+	})
 	if err != nil {
 		log.Fatalf("err: failed to load templates: %v", err)
 	}
-	endTime = time.Now()
-	log.Printf("loadTemplates: duration:%v\n", endTime.Sub(startTime))
-	// End of load templates
 
 	staticFS, err := getFSFromS3URLOrDefault(cfg.StaticBucketURL, sess, defaultStaticFS)
 	if err != nil {
@@ -287,18 +290,18 @@ func GenerateIndexFiles(cfg Config) error {
 	}
 
 	// copy static
-	startTime = time.Now()
-	err = copyStaticFiles(staticFS, "static", sp, "static")
+	err = xray.Capture(ctx, "copyStaticFiles", func(c context.Context) error {
+
+		return copyStaticFiles(staticFS, "static", sp, "static")
+	})
 	if err != nil {
 		log.Fatalf("err: failed to copy static files %v", err)
 	}
-	endTime = time.Now()
-	log.Printf("copyStaticFiles: duration:%v\n", endTime.Sub(startTime))
 
-	startTime = time.Now()
-	err = renderer(t, tmpl, cfg.IndexTemplate, sp)
-	endTime = time.Now()
-	log.Printf("render: duration:%v\n", endTime.Sub(startTime))
+	err = xray.Capture(ctx, "render", func(c context.Context) error {
 
-	return renderer(t, tmpl, cfg.IndexTemplate, sp)
+		return renderer(t, tmpl, cfg.IndexTemplate, sp)
+	})
+
+	return err
 }

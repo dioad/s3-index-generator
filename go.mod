@@ -2,7 +2,7 @@ module github.com/dioad/s3-index-generator
 
 go 1.18
 
-replace github.com/fclairamb/afero-s3 v0.3.0 => github.com/patdowney/afero-s3 v0.3.1-0.20220101201844-c459c762e51b
+replace github.com/fclairamb/afero-s3 v0.3.0 => github.com/patdowney/afero-s3 v0.3.2
 
 require (
 	github.com/aws/aws-lambda-go v1.33.0

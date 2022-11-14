@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go v1.44.136
 	github.com/aws/aws-xray-sdk-go v1.7.1
 	github.com/fclairamb/afero-s3 v0.3.0
-	github.com/spf13/afero v1.9.2
+	github.com/spf13/afero v1.9.3
 )
 
 require (

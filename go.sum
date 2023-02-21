@@ -43,8 +43,8 @@ github.com/andybalholm/brotli v1.0.4 h1:V7DdXeJtZscaqfNuAdSRuRFzuiKlHSC/Zh3zl9qY
 github.com/andybalholm/brotli v1.0.4/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/aws/aws-lambda-go v1.37.0 h1:WXkQ/xhIcXZZ2P5ZBEw+bbAKeCEcb5NtiYpSwVVzIXg=
 github.com/aws/aws-lambda-go v1.37.0/go.mod h1:jwFe2KmMsHmffA1X2R09hH6lFzJQxzI8qK17ewzbQMM=
-github.com/aws/aws-sdk-go v1.44.205 h1:q23NJXgLPIuBMn4zaluWWz57HPP5z7Ut8ZtK1D3N9bs=
-github.com/aws/aws-sdk-go v1.44.205/go.mod h1:aVsgQcEevwlmQ7qHE9I3h+dtQgpqhFB+i8Phjh7fkwI=
+github.com/aws/aws-sdk-go v1.44.206 h1:xC7O40wdnKH4A95KdYt+smXl9hig1vu9b3mFxAxUoak=
+github.com/aws/aws-sdk-go v1.44.206/go.mod h1:aVsgQcEevwlmQ7qHE9I3h+dtQgpqhFB+i8Phjh7fkwI=
 github.com/aws/aws-xray-sdk-go v1.8.0 h1:0xncHZ588wB/geLjbM/esoW3FOEThWy2TJyb4VXfLFY=
 github.com/aws/aws-xray-sdk-go v1.8.0/go.mod h1:7LKe47H+j3evfvS1+q0wzpoaGXGrF3mUsfM+thqVO+A=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=

@@ -50,26 +50,12 @@ func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string, objectPrefix string) (*ObjectTree, error) {
-	//objInput := s3.ListObjectsInput{
-	//	Bucket: &objectBucketName,
-	//	Prefix: &objectPrefix,
-	//}
-	//objects, err := s3Client.ListObjects(&objInput)
-	//if err != nil {
-	//	return nil, err
-	//}
-	objects, err := FetchObjects(s3Client, objectBucketName, objectPrefix)
+func fetchBucketObjectTree(ctx context.Context, s3Client *s3.S3, objectBucketName string, objectPrefix string) (*ObjectTree, error) {
+	objects, err := FetchObjectsWithContext(ctx, s3Client, objectBucketName, objectPrefix)
 	if err != nil {
 		return nil, err
 	}
 
-	//tagginInput := s3.GetObjectTaggingInput{
-	//	Bucket: &objectBucketName,
-	//	Key:	&objectPrefix,
-	//}
-	//tagginOutput, _ := s3Client.GetObjectTagging(&tagginInput)
-	//tagginOutput.
 	t := NewRootObjectTree()
 	t.PrefixToStrip = objectPrefix
 	t.Exclusions = Exclusions{
@@ -112,6 +98,25 @@ func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Templat
 	}
 
 	return tmpl.ExecuteTemplate(f, templateName, p)
+}
+
+type Index struct {
+	Builds []IndexEntry
+
+	Name    string `json:"name"`
+	Shasums string `json:"shasums"`
+	//	ShasumsSignature  string   `json:"shasums_signature"`
+	//	ShasumsSignatures []string `json:"shasums_signatures"`
+	Version string `json:"version"`
+}
+
+type IndexEntry struct {
+	Arch     string `json:"arch"` // Dioad/Arch
+	Filename string `json:"filename"`
+	Name     string `json:"name"` // Dioad/Project
+	Os       string `json:"os"`   // Dioad/OS
+	Url      string `json:"url"`
+	Version  string `json:"version"` // Dioad/Version
 }
 
 func renderObjectTreeAsMultiPage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
@@ -233,7 +238,7 @@ func GenerateIndexFiles(ctx context.Context, cfg Config) error {
 	var t *ObjectTree
 	err := xray.Capture(ctx, "fetchBucketObjectTree", func(c context.Context) error {
 		var err error
-		t, err = fetchBucketObjectTree(s3Client, cfg.Bucket, cfg.ObjectPrefix)
+		t, err = fetchBucketObjectTree(ctx, s3Client, cfg.Bucket, cfg.ObjectPrefix)
 		//endTime := time.Now()
 		return err
 	})

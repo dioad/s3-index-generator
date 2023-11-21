@@ -23,7 +23,7 @@ Templates are rendered against an `ObjectTree` instance:
 ```
 type Object struct {
     Object *s3.Object
-    TagSet []*s3.Tag
+    Tags map[string]string
 }
 
 type ObjectTree struct {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 
@@ -10,40 +11,62 @@ import (
 
 type Object struct {
 	Object *s3.Object
-	TagSet []*s3.Tag
+	Tags   map[string]string
 }
 
+// FetchObjects fetches objects from S3.
 func FetchObjects(s3Client *s3.S3, bucketName string, prefix string) ([]*Object, error) {
 	return FetchObjectsWithContext(context.Background(), s3Client, bucketName, prefix)
 }
 
+// FetchObjectsWithContext fetches objects from S3 with a context.
 func FetchObjectsWithContext(ctx context.Context, s3Client *s3.S3, bucketName string, prefix string) ([]*Object, error) {
 	objInput := s3.ListObjectsInput{
 		Bucket: &bucketName,
 		Prefix: &prefix,
 	}
-	objects, err := s3Client.ListObjectsWithContext(ctx, &objInput)
-	if err != nil {
-		return nil, err
-	}
 
 	items := make([]*Object, 0)
+
+	s3Client.ListObjectsPagesWithContext(ctx, &objInput, func(page *s3.ListObjectsOutput, lastPage bool) bool {
+		pageItems, err := fetchItemsAndTags(ctx, s3Client, bucketName, page)
+		if err != nil {
+			return false
+		}
+		items = append(items, pageItems...)
+		return true
+	})
+
+	return items, nil
+}
+
+func fetchItemsAndTags(ctx context.Context, s3Client *s3.S3, bucketName string, objects *s3.ListObjectsOutput) ([]*Object, error) {
+	items := make([]*Object, 0)
 	for _, o := range objects.Contents {
+		obj := o
+		key := obj.Key
 		tagInput := s3.GetObjectTaggingInput{
 			Bucket: &bucketName,
-			Key:    o.Key,
+			Key:    key,
 		}
 		tags, err := s3Client.GetObjectTaggingWithContext(ctx, &tagInput)
 		if err != nil {
 			return nil, err
 		}
 
-		items = append(items, &Object{
-			Object: o,
-			TagSet: tags.TagSet,
-		})
-	}
+		fmt.Printf("key: %v, tags: %v\n", *key, tags)
 
+		object := &Object{
+			Object: obj,
+			Tags:   make(map[string]string),
+		}
+
+		for _, tag := range tags.TagSet {
+			object.Tags[*tag.Key] = *tag.Value
+		}
+
+		items = append(items, object)
+	}
 	return items, nil
 }
 
@@ -158,6 +181,7 @@ func (k ByChildKey) Len() int           { return len(k) }
 func (k ByChildKey) Swap(i, j int)      { k[i], k[j] = k[j], k[i] }
 func (k ByChildKey) Less(i, j int) bool { return k[i] < k[j] }
 
+// AddPathToTree adds a path to the tree.
 func AddPathToTree(t *ObjectTree, pathParts []string, obj *Object) {
 	if len(pathParts) == 1 {
 		t.AddObject(obj)
@@ -169,6 +193,7 @@ func AddPathToTree(t *ObjectTree, pathParts []string, obj *Object) {
 	}
 }
 
+// AddObjectToTree adds an object to the tree.
 func AddObjectToTree(t *ObjectTree, obj *Object) {
 	parts := strings.Split(*obj.Object.Key, "/")
 	if len(parts) == 1 {
@@ -181,12 +206,14 @@ func AddObjectToTree(t *ObjectTree, obj *Object) {
 	}
 }
 
+// AddObjectsToTree adds objects to the tree.
 func AddObjectsToTree(t *ObjectTree, objects []*Object) {
 	for _, o := range objects {
 		AddObjectToTree(t, o)
 	}
 }
 
+// NewRootObjectTree creates a new root object tree.
 func NewRootObjectTree() *ObjectTree {
 	return &ObjectTree{
 		FullPath: "/",
@@ -194,6 +221,7 @@ func NewRootObjectTree() *ObjectTree {
 	}
 }
 
+// CreateObjectTree creates an object tree.
 func CreateObjectTree(objects []*Object) *ObjectTree {
 	t := NewRootObjectTree()
 

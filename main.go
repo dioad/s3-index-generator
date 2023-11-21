@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-xray-sdk-go/xray"
 )
 
 var (
@@ -76,9 +76,13 @@ func parseConfigFromEnvironment() Config {
 
 func HandleRequest(ctx context.Context, event events.S3Event) error {
 	// lc, _ := lambdacontext.FromContext(ctx)
-	eventJson, _ := json.MarshalIndent(event, "", "  ")
-	log.Printf("%s", eventJson)
+	fmt.Printf("bucket: %v, key: %v, event: %v",
+		event.Records[0].S3.Bucket.Name,
+		event.Records[0].S3.Object.Key,
+		event.Records[0].EventName,
+	)
 
+	// We should figure bucket out from event
 	cfg := parseConfigFromEnvironment()
 	if cfg.Bucket == "" {
 		return errors.New("no BUCKET environment variable specified")
@@ -102,8 +106,10 @@ func main() {
 			if len(os.Args) == 3 {
 				cfg.LocalOutputDirectory = os.Args[2]
 			}
-			ctx := context.Background()
+			ctxStart := context.Background()
+			ctx, seg := xray.BeginSegment(ctxStart, "local")
 			err := GenerateIndexFiles(ctx, cfg)
+			seg.Close(err)
 			if err != nil {
 				fmt.Printf("err: %v\n", err)
 			}

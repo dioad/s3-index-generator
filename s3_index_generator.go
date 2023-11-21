@@ -51,15 +51,25 @@ func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 }
 
 func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string, objectPrefix string) (*ObjectTree, error) {
-	objInput := s3.ListObjectsInput{
-		Bucket: &objectBucketName,
-		Prefix: &objectPrefix,
-	}
-	objects, err := s3Client.ListObjects(&objInput)
+	//objInput := s3.ListObjectsInput{
+	//	Bucket: &objectBucketName,
+	//	Prefix: &objectPrefix,
+	//}
+	//objects, err := s3Client.ListObjects(&objInput)
+	//if err != nil {
+	//	return nil, err
+	//}
+	objects, err := FetchObjects(s3Client, objectBucketName, objectPrefix)
 	if err != nil {
 		return nil, err
 	}
 
+	//tagginInput := s3.GetObjectTaggingInput{
+	//	Bucket: &objectBucketName,
+	//	Key:	&objectPrefix,
+	//}
+	//tagginOutput, _ := s3Client.GetObjectTagging(&tagginInput)
+	//tagginOutput.
 	t := NewRootObjectTree()
 	t.PrefixToStrip = objectPrefix
 	t.Exclusions = Exclusions{
@@ -70,7 +80,7 @@ func fetchBucketObjectTree(s3Client *s3.S3, objectBucketName string, objectPrefi
 		ExcludeSuffix("/index.html"),
 	}
 
-	AddObjectsToTree(t, objects.Contents)
+	AddObjectsToTree(t, objects)
 
 	return t, nil
 }

@@ -21,10 +21,15 @@ If `TEMPLATE_BUCKET_URL` is set the utility will look for a root template with t
 Templates are rendered against an `ObjectTree` instance:
 
 ```
+type Object struct {
+    Object *s3.Object
+    TagSet []*s3.Tag
+}
+
 type ObjectTree struct {
 	FullPath string
 	DirName  string
-	Objects  []*s3.Object
+	Objects  []*Object
 	Children map[string]*ObjectTree
 }
 ```

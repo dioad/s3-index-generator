@@ -11,15 +11,21 @@ func TestObjectTree(t *testing.T) {
 	var fileB = "a/b/c/fileB"
 	var fileC = "a/b/fileC"
 
-	stubs := []*s3.Object{
-		&s3.Object{
-			Key: &fileA,
+	stubs := []*Object{
+		{
+			Object: &s3.Object{
+				Key: &fileA,
+			},
 		},
-		&s3.Object{
-			Key: &fileB,
+		{
+			Object: &s3.Object{
+				Key: &fileB,
+			},
 		},
-		&s3.Object{
-			Key: &fileC,
+		{
+			Object: &s3.Object{
+				Key: &fileC,
+			},
 		},
 	}
 

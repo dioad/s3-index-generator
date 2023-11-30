@@ -13,17 +13,17 @@ func TestObjectTree(t *testing.T) {
 
 	stubs := []*Object{
 		{
-			Object: &s3.Object{
+			obj: &s3.Object{
 				Key: &fileA,
 			},
 		},
 		{
-			Object: &s3.Object{
+			obj: &s3.Object{
 				Key: &fileB,
 			},
 		},
 		{
-			Object: &s3.Object{
+			obj: &s3.Object{
 				Key: &fileC,
 			},
 		},

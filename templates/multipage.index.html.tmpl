@@ -17,7 +17,7 @@
             <li><a href="{{ $value.DirName }}/index.html">{{ $value.DirName }}/</a></li>
         {{ end }}
         {{ range  .ObjectTree.Objects }}
-            <li><a href="/{{ .Object.Key }}">{{ .Object.Key | ObjectBaseName }}</a> {{ .Object.LastModified }}</li>
+            <li><a href="/{{ .Key }}">{{ .BaseName }}</a> {{ .LastModified }}</li>
         {{ end }}
     </ul>
 </div>

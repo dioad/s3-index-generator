@@ -1,16 +1,17 @@
 module github.com/dioad/s3-index-generator
 
-go 1.18
+go 1.21
 
 replace github.com/fclairamb/afero-s3 v0.3.0 => github.com/patdowney/afero-s3 v0.3.2
 
 require (
 	github.com/aws/aws-lambda-go v1.41.0
-	github.com/aws/aws-sdk-go v1.48.8
+	github.com/aws/aws-sdk-go v1.48.10
 	github.com/aws/aws-xray-sdk-go v1.8.3
 	github.com/coreos/go-semver v0.3.1
 	github.com/fclairamb/afero-s3 v0.3.0
 	github.com/spf13/afero v1.11.0
+	golang.org/x/sync v0.5.0
 )
 
 require (
@@ -24,7 +25,7 @@ require (
 	golang.org/x/net v0.19.0 // indirect
 	golang.org/x/sys v0.15.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20231120223509-83a465c0220f // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20231127180814-3a041ad873d4 // indirect
 	google.golang.org/grpc v1.59.0 // indirect
 	google.golang.org/protobuf v1.31.0 // indirect
 )

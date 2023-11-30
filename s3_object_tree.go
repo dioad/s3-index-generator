@@ -1,74 +1,9 @@
 package main
 
 import (
-	"context"
-	"fmt"
 	"path/filepath"
 	"strings"
-
-	"github.com/aws/aws-sdk-go/service/s3"
 )
-
-type Object struct {
-	Object *s3.Object
-	Tags   map[string]string
-}
-
-// FetchObjects fetches objects from S3.
-func FetchObjects(s3Client *s3.S3, bucketName string, prefix string) ([]*Object, error) {
-	return FetchObjectsWithContext(context.Background(), s3Client, bucketName, prefix)
-}
-
-// FetchObjectsWithContext fetches objects from S3 with a context.
-func FetchObjectsWithContext(ctx context.Context, s3Client *s3.S3, bucketName string, prefix string) ([]*Object, error) {
-	objInput := s3.ListObjectsInput{
-		Bucket: &bucketName,
-		Prefix: &prefix,
-	}
-
-	items := make([]*Object, 0)
-
-	s3Client.ListObjectsPagesWithContext(ctx, &objInput, func(page *s3.ListObjectsOutput, lastPage bool) bool {
-		pageItems, err := fetchItemsAndTags(ctx, s3Client, bucketName, page)
-		if err != nil {
-			return false
-		}
-		items = append(items, pageItems...)
-		return true
-	})
-
-	return items, nil
-}
-
-func fetchItemsAndTags(ctx context.Context, s3Client *s3.S3, bucketName string, objects *s3.ListObjectsOutput) ([]*Object, error) {
-	items := make([]*Object, 0)
-	for _, o := range objects.Contents {
-		obj := o
-		key := obj.Key
-		tagInput := s3.GetObjectTaggingInput{
-			Bucket: &bucketName,
-			Key:    key,
-		}
-		tags, err := s3Client.GetObjectTaggingWithContext(ctx, &tagInput)
-		if err != nil {
-			return nil, err
-		}
-
-		fmt.Printf("key: %v, tags: %v\n", *key, tags)
-
-		object := &Object{
-			Object: obj,
-			Tags:   make(map[string]string),
-		}
-
-		for _, tag := range tags.TagSet {
-			object.Tags[*tag.Key] = *tag.Value
-		}
-
-		items = append(items, object)
-	}
-	return items, nil
-}
 
 // ObjectTree is a tree of S3 objects.
 type ObjectTree struct {
@@ -141,7 +76,7 @@ func (t *ObjectTree) AddObject(obj *Object) {
 	}
 
 	//log.Printf("AddObject: %v", *obj.Key)
-	if t.Exclusions.Include(*obj.Object.Key) {
+	if t.Exclusions.Include(obj.Key()) {
 		//log.Printf("AddObject:Include: %v", *obj.Key)
 		t.Objects = append(t.Objects, obj)
 	}
@@ -169,17 +104,78 @@ func (t *ObjectTree) AddChild(name string) *ObjectTree {
 	return t.Children[name]
 }
 
-type ByObjectKey []*s3.Object
+// IsVersionTree returns true if the tree name looks like a semver.
+func (t *ObjectTree) IsVersionTree() bool {
+	return t.DirName == "build" || IsVersionLabel(t.DirName)
+}
 
-func (k ByObjectKey) Len() int           { return len(k) }
-func (k ByObjectKey) Swap(i, j int)      { k[i], k[j] = k[j], k[i] }
-func (k ByObjectKey) Less(i, j int) bool { return *k[i].Key < *k[j].Key }
+func (t *ObjectTree) IsArchiveTree() bool {
+	for _, v := range t.Children {
+		if v.IsProductTree() {
+			return true
+		}
+	}
+	return false
+}
 
-type ByChildKey []string
+func (t *ObjectTree) ArchiveIndex(cfg IndexConfig) *ArchiveIndex {
+	if !t.IsArchiveTree() {
+		return nil
+	}
 
-func (k ByChildKey) Len() int           { return len(k) }
-func (k ByChildKey) Swap(i, j int)      { k[i], k[j] = k[j], k[i] }
-func (k ByChildKey) Less(i, j int) bool { return k[i] < k[j] }
+	archiveIndex := NewArchiveIndex()
+
+	for _, v := range t.Children {
+		if v.IsProductTree() {
+			archiveIndex.AddProduct(v.ProductIndex(cfg))
+		}
+	}
+	return archiveIndex
+}
+
+// IsProductTree returns true if the tree contains children that look like a semver.
+func (t *ObjectTree) IsProductTree() bool {
+	for _, v := range t.Children {
+		if v.IsVersionTree() {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *ObjectTree) ProductIndex(cfg IndexConfig) *ProductIndex {
+	if !t.IsProductTree() {
+		return nil
+	}
+
+	productIndex := NewProductIndex(t.DirName)
+
+	for _, v := range t.Children {
+		if v.IsVersionTree() {
+			productIndex.AddVersion(v.VersionIndex(cfg))
+		}
+	}
+
+	return productIndex
+}
+
+func (t *ObjectTree) ParentName() string {
+	return filepath.Base(t.ParentFullPath())
+}
+
+func (t *ObjectTree) ParentFullPath() string {
+	return filepath.Clean(filepath.Join(t.FullPath, ".."))
+}
+
+func (t *ObjectTree) VersionIndex(cfg IndexConfig) *VersionIndex {
+	if !t.IsVersionTree() {
+		return nil
+	}
+
+	versionIndex := NewVersionIndex(cfg, t)
+
+	return versionIndex
+}
 
 // AddPathToTree adds a path to the tree.
 func AddPathToTree(t *ObjectTree, pathParts []string, obj *Object) {
@@ -195,7 +191,7 @@ func AddPathToTree(t *ObjectTree, pathParts []string, obj *Object) {
 
 // AddObjectToTree adds an object to the tree.
 func AddObjectToTree(t *ObjectTree, obj *Object) {
-	parts := strings.Split(*obj.Object.Key, "/")
+	parts := strings.Split(obj.Key(), "/")
 	if len(parts) == 1 {
 		t.AddObject(obj)
 	} else {

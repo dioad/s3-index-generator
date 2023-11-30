@@ -6,6 +6,11 @@ import (
 	"github.com/coreos/go-semver/semver"
 )
 
+func IsVersionLabel(label string) bool {
+	_, err := ParseSemVer(label)
+	return err == nil
+}
+
 func ParseSemVer(version string) (*semver.Version, error) {
 	// strip leading 'v' if present
 	if version[0] == 'v' || version[0] == 'V' {

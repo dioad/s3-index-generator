@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
@@ -13,17 +14,17 @@ import (
 	"log"
 	"net/url"
 	"os"
-	"strings"
+	"path"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-xray-sdk-go/xray"
 	aferos3 "github.com/fclairamb/afero-s3"
+	"github.com/spf13/afero"
 
 	//"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/spf13/afero"
 )
 
 //go:embed templates
@@ -32,14 +33,15 @@ var defaultTemplateFS embed.FS
 //go:embed static
 var defaultStaticFS embed.FS
 
-func ObjectBaseName(objKey string) string {
-	parts := strings.Split(objKey, "/")
-	return parts[len(parts)-1]
+var DioadIndexConfig = IndexConfig{
+	ProductTagName:      "Dioad/Project",
+	VersionTagName:      "Dioad/Version",
+	ArchitectureTagName: "Dioad/Architecture",
+	OSTagName:           "Dioad/OS",
 }
 
 func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 	tplFuncMap := make(template.FuncMap)
-	tplFuncMap["ObjectBaseName"] = ObjectBaseName
 
 	tmpl := template.New("")
 	tmpl.Funcs(tplFuncMap)
@@ -85,38 +87,57 @@ func nonce() string {
 	return base64.StdEncoding.EncodeToString(nonce)
 }
 
+func writeObjectTreeIndex(cfg IndexConfig, objectTree *ObjectTree, destFS afero.Fs) error {
+	if objectTree.IsProductTree() {
+		return writeIndexFile(objectTree.ProductIndex(cfg), destFS)
+	}
+	if objectTree.IsArchiveTree() {
+		return writeIndexFile(objectTree.ArchiveIndex(cfg), destFS)
+	}
+	if objectTree.IsVersionTree() {
+		return writeIndexFile(objectTree.VersionIndex(cfg), destFS)
+	}
+	return nil
+}
+
+func writeIndexFile(index any, destFS afero.Fs) error {
+
+	indexFile := path.Join("index.json")
+	f, err := destFS.OpenFile(indexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	jsonEncoder := json.NewEncoder(f)
+
+	err = jsonEncoder.Encode(index)
+	if err != nil {
+		closeErr := f.Close()
+		return fmt.Errorf("%w: %w", closeErr, err)
+	}
+
+	return f.Close()
+}
+
 func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
 	f, err := destFS.OpenFile(IndexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	p := Page{
 		Nonce:      nonce(),
 		ObjectTree: objectTree,
 	}
 
-	return tmpl.ExecuteTemplate(f, templateName, p)
-}
+	err = tmpl.ExecuteTemplate(f, templateName, p)
+	if err != nil {
+		closeErr := f.Close()
+		return fmt.Errorf("%w: %w", closeErr, err)
+	}
 
-type Index struct {
-	Builds []IndexEntry
-
-	Name    string `json:"name"`
-	Shasums string `json:"shasums"`
-	//	ShasumsSignature  string   `json:"shasums_signature"`
-	//	ShasumsSignatures []string `json:"shasums_signatures"`
-	Version string `json:"version"`
-}
-
-type IndexEntry struct {
-	Arch     string `json:"arch"` // Dioad/Arch
-	Filename string `json:"filename"`
-	Name     string `json:"name"` // Dioad/Project
-	Os       string `json:"os"`   // Dioad/OS
-	Url      string `json:"url"`
-	Version  string `json:"version"` // Dioad/Version
+	return f.Close()
 }
 
 func renderObjectTreeAsMultiPage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
@@ -126,6 +147,8 @@ func renderObjectTreeAsMultiPage(objectTree *ObjectTree, tmpl *template.Template
 	}
 
 	for _, v := range objectTree.Children {
+		v := v
+
 		err := destFS.MkdirAll(v.DirName, 0755)
 		if err != nil {
 			return err
@@ -133,13 +156,14 @@ func renderObjectTreeAsMultiPage(objectTree *ObjectTree, tmpl *template.Template
 
 		subFS := afero.NewBasePathFs(destFS, v.DirName)
 		err = renderObjectTreeAsMultiPage(v, tmpl, templateName, subFS)
-
 		if err != nil {
 			return err
 		}
 	}
 
-	return nil
+	err = writeObjectTreeIndex(DioadIndexConfig, objectTree, destFS)
+
+	return err
 }
 
 func IOFSFromS3URL(sess *session.Session, url *url.URL) (fs.FS, error) {
@@ -314,7 +338,6 @@ func GenerateIndexFiles(ctx context.Context, cfg Config) error {
 	}
 
 	err = xray.Capture(ctx, "render", func(c context.Context) error {
-
 		return renderer(t, tmpl, cfg.IndexTemplate, sp)
 	})
 

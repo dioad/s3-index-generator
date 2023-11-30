@@ -5,7 +5,7 @@
     </li>
 {{ end }}
 {{ range  .Objects }}
-    <li><a href="/{{ .Object.Key }}">{{ .Object.Key | ObjectBaseName }}</a> {{ .Object.LastModified }} [{{ .Object.Size }}]</li>
+    <li><a href="/{{ .Key }}">{{ .BaseName }}</a> {{ .LastModified }} [{{ .Size }}]</li>
 {{ end }}
 </ul>
 

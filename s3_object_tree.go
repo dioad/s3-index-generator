@@ -274,6 +274,17 @@ func NewObjectTreeWithObjects(cfg ObjectTreeConfig, objects []Object) *ObjectTre
 	return t
 }
 
+func NewObjectTreeFromLister(cfg ObjectTreeConfig, objectLister ObjectLister) (*ObjectTree, error) {
+	t := NewRootObjectTree(cfg)
+
+	err := t.AddObjectsFromLister(objectLister)
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
+}
+
 // CreateObjectTree creates an object tree.
 //func CreateObjectTree(objects []Object) *ObjectTree {
 //	t := NewRootObjectTree()

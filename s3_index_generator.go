@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
@@ -41,29 +40,6 @@ type ObjectTreeConfig struct {
 	Exclusions    Exclusions
 }
 
-func fetchBucketObjectTree(ctx context.Context, bucket ObjectLister, objectPrefix string) (*ObjectTree, error) {
-	//	func fetchBucketObjectTree(ctx context.Context, s3Client *s3.S3, objectBucketName string, objectPrefix string) (*ObjectTree, error) {
-	objects, err := bucket.ListObjects(ctx, objectPrefix)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg := ObjectTreeConfig{
-		PrefixToStrip: objectPrefix,
-		Exclusions: Exclusions{
-			ExcludeKey("favicon.ico"),
-			ExcludeKey("index.html"),
-			ExcludePrefix("."),
-			ExcludeSuffix("/"),
-			ExcludeSuffix("/index.html"),
-		},
-	}
-
-	t := NewObjectTreeWithObjects(cfg, objects)
-
-	return t, nil
-}
-
 type Page struct {
 	Nonce      string
 	ObjectTree *ObjectTree
@@ -97,7 +73,7 @@ type IndexRenderer struct {
 	Render    func(io.Writer, *ObjectTree) error
 }
 
-func JSONRenderer(config IndexConfig) IndexRenderer {
+func JSONIndexRenderer(config IndexConfig) IndexRenderer {
 	return IndexRenderer{
 		IndexFile: "index.json",
 		Render: func(stream io.Writer, objectTree *ObjectTree) error {
@@ -110,7 +86,7 @@ func JSONRenderer(config IndexConfig) IndexRenderer {
 	}
 }
 
-func HTMLRenderer(tmpl *template.Template, templateName string) IndexRenderer {
+func HTMLIndexRenderer(tmpl *template.Template, templateName string) IndexRenderer {
 	return IndexRenderer{
 		IndexFile: "index.html",
 		Render: func(stream io.Writer, objectTree *ObjectTree) error {
@@ -124,7 +100,7 @@ func HTMLRenderer(tmpl *template.Template, templateName string) IndexRenderer {
 	}
 }
 
-func renderObjectTreeToFile(objectTree *ObjectTree, fileRenderer IndexRenderer, destFS afero.Fs) error {
+func RenderObjectTreeIndexFile(objectTree *ObjectTree, fileRenderer IndexRenderer, destFS afero.Fs) error {
 	indexFile := path.Join(fileRenderer.IndexFile)
 	f, err := destFS.OpenFile(indexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
@@ -147,13 +123,13 @@ func (r IndexRenderers) Render(destFS afero.Fs, objectTree *ObjectTree) error {
 	for _, renderer := range r {
 		renderer := renderer
 		errGroup.Go(func() error {
-			return renderObjectTreeToFile(objectTree, renderer, destFS)
+			return RenderObjectTreeIndexFile(objectTree, renderer, destFS)
 		})
 	}
 	return errGroup.Wait()
 }
 
-func RenderObjectTree(objectTree *ObjectTree, renderers IndexRenderers, destFS afero.Fs, recursive bool) error {
+func RenderObjectTreeIndexes(objectTree *ObjectTree, renderers IndexRenderers, destFS afero.Fs, recursive bool) error {
 	errGroup := errgroup.Group{}
 	errGroup.SetLimit(10)
 
@@ -173,7 +149,7 @@ func RenderObjectTree(objectTree *ObjectTree, renderers IndexRenderers, destFS a
 			v := v
 
 			errGroup.Go(func() error {
-				return RenderObjectTree(v, renderers, thisFS, recursive)
+				return RenderObjectTreeIndexes(v, renderers, thisFS, recursive)
 			})
 		}
 	}
@@ -201,23 +177,6 @@ func s3Client(sess *session.Session) *s3.S3 {
 	return client
 }
 
-func GenerateIndexFiles(objectTree *ObjectTree, outputFS afero.Fs, tmpl *template.Template, indexTemplate string, indexType string) error {
-
-	renderers := IndexRenderers{
-		HTMLRenderer(tmpl, indexTemplate),
-		JSONRenderer(DioadIndexConfig),
-	}
-
-	// select renderer
-	recursive := true
-	if indexType == SinglePageIdentifier {
-		recursive = false
-	}
-	// end select renderer
-
-	return RenderObjectTree(objectTree, renderers, outputFS, recursive)
-}
-
 func CreateObjectTree(objectLister ObjectLister, objectPrefix string) (*ObjectTree, error) {
 	objectTreeCfg := ObjectTreeConfig{
 		PrefixToStrip: objectPrefix,
@@ -230,10 +189,5 @@ func CreateObjectTree(objectLister ObjectLister, objectPrefix string) (*ObjectTr
 		},
 	}
 
-	objectTree := NewRootObjectTree(objectTreeCfg)
-	err := objectTree.AddObjectsFromLister(objectLister)
-	if err != nil {
-		return nil, err
-	}
-	return objectTree, nil
+	return NewObjectTreeFromLister(objectTreeCfg, objectLister)
 }

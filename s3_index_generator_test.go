@@ -39,18 +39,6 @@ func (b *testBucket) ListObjects(ctx context.Context, key string) ([]Object, err
 	}, nil
 }
 
-func TestFetchBucketObjectTree(t *testing.T) {
-	ctx := context.Background()
-
-	bucket := &testBucket{}
-
-	_, err := fetchBucketObjectTree(ctx, bucket, "testPrefix")
-	if err != nil {
-		t.Errorf("fetchBucketObjectTree() error = %v", err)
-		return
-	}
-}
-
 //func TestCopyFile(t *testing.T) {
 //	srcFS := afero.NewMemMapFs()
 //	destFS := afero.NewMemMapFs()

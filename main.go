@@ -116,8 +116,8 @@ func indexS3Bucket(sess *session.Session, cfg Config, outputFS afero.Fs) error {
 	}
 
 	renderers := IndexRenderers{
-		HTMLRenderer(tmpl, cfg.IndexTemplate),
-		JSONRenderer(DioadIndexConfig),
+		HTMLIndexRenderer(tmpl, cfg.IndexTemplate),
+		JSONIndexRenderer(DioadIndexConfig),
 	}
 
 	// select renderer
@@ -128,7 +128,7 @@ func indexS3Bucket(sess *session.Session, cfg Config, outputFS afero.Fs) error {
 	// end select renderer
 
 	duration, err = TimeFunc(func() error {
-		return RenderObjectTree(objectTree, renderers, outputFS, recursive)
+		return RenderObjectTreeIndexes(objectTree, renderers, outputFS, recursive)
 	})
 
 	log.Printf("GenerateIndexFiles: duration:%v\n", duration)

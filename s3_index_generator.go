@@ -6,20 +6,14 @@ import (
 	"embed"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"html/template"
-	"io"
-	"io/fs"
 	"log"
-	"net/url"
 	"os"
 	"path"
-	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-xray-sdk-go/xray"
-	aferos3 "github.com/fclairamb/afero-s3"
 	"github.com/spf13/afero"
 
 	//"github.com/aws/aws-sdk-go/aws/credentials"
@@ -40,35 +34,30 @@ var DioadIndexConfig = IndexConfig{
 	OSTagName:           "Dioad/OS",
 }
 
-func loadTemplates(templateFS fs.FS) (*template.Template, error) {
-	tplFuncMap := make(template.FuncMap)
-
-	tmpl := template.New("")
-	tmpl.Funcs(tplFuncMap)
-	tmpl, err := tmpl.ParseFS(templateFS, "**/*")
-	if err != nil {
-		return nil, err
-	}
-	return tmpl, nil
+type ObjectTreeConfig struct {
+	PrefixToStrip string
+	Exclusions    Exclusions
 }
 
-func fetchBucketObjectTree(ctx context.Context, s3Client *s3.S3, objectBucketName string, objectPrefix string) (*ObjectTree, error) {
-	objects, err := FetchObjectsWithContext(ctx, s3Client, objectBucketName, objectPrefix)
+func fetchBucketObjectTree(ctx context.Context, bucket ObjectLister, objectPrefix string) (*ObjectTree, error) {
+	//	func fetchBucketObjectTree(ctx context.Context, s3Client *s3.S3, objectBucketName string, objectPrefix string) (*ObjectTree, error) {
+	objects, err := bucket.ListObjects(ctx, objectPrefix)
 	if err != nil {
 		return nil, err
 	}
 
-	t := NewRootObjectTree()
-	t.PrefixToStrip = objectPrefix
-	t.Exclusions = Exclusions{
-		ExcludeKey("favicon.ico"),
-		ExcludeKey("index.html"),
-		ExcludePrefix("."),
-		ExcludeSuffix("/"),
-		ExcludeSuffix("/index.html"),
+	cfg := ObjectTreeConfig{
+		PrefixToStrip: objectPrefix,
+		Exclusions: Exclusions{
+			ExcludeKey("favicon.ico"),
+			ExcludeKey("index.html"),
+			ExcludePrefix("."),
+			ExcludeSuffix("/"),
+			ExcludeSuffix("/index.html"),
+		},
 	}
 
-	AddObjectsToTree(t, objects)
+	t := NewObjectTreeWithObjects(cfg, objects)
 
 	return t, nil
 }
@@ -87,17 +76,36 @@ func nonce() string {
 	return base64.StdEncoding.EncodeToString(nonce)
 }
 
+type ObjectTreeIndexGenerator func(cfg IndexConfig, objectTree *ObjectTree) any
+type ObjectTreeIndexIdentifier func(objectTree *ObjectTree) bool
+
+func IndexForObjectTree(cfg IndexConfig, objectTree *ObjectTree) any {
+	var index any
+	if IsProductTree(objectTree) {
+		index = NewProductIndexForObjectTree(cfg, objectTree)
+	}
+	if IsArchiveTree(objectTree) {
+		index = NewArchiveIndexForObjectTree(cfg, objectTree)
+	}
+	if IsVersionTree(objectTree) {
+		index = NewVersionIndexForObjectTree(cfg, objectTree)
+	}
+	return index
+}
+
 func writeObjectTreeIndex(cfg IndexConfig, objectTree *ObjectTree, destFS afero.Fs) error {
-	if objectTree.IsProductTree() {
-		return writeIndexFile(objectTree.ProductIndex(cfg), destFS)
+	var index any
+	if IsProductTree(objectTree) {
+		index = NewProductIndexForObjectTree(cfg, objectTree)
 	}
-	if objectTree.IsArchiveTree() {
-		return writeIndexFile(objectTree.ArchiveIndex(cfg), destFS)
+	if IsArchiveTree(objectTree) {
+		index = NewArchiveIndexForObjectTree(cfg, objectTree)
 	}
-	if objectTree.IsVersionTree() {
-		return writeIndexFile(objectTree.VersionIndex(cfg), destFS)
+	if IsVersionTree(objectTree) {
+		index = NewVersionIndexForObjectTree(cfg, objectTree)
 	}
-	return nil
+
+	return writeIndexFile(index, destFS)
 }
 
 func writeIndexFile(index any, destFS afero.Fs) error {
@@ -107,7 +115,6 @@ func writeIndexFile(index any, destFS afero.Fs) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
 	jsonEncoder := json.NewEncoder(f)
 
@@ -161,91 +168,14 @@ func renderObjectTreeAsMultiPage(objectTree *ObjectTree, tmpl *template.Template
 		}
 	}
 
-	err = writeObjectTreeIndex(DioadIndexConfig, objectTree, destFS)
+	index := IndexForObjectTree(DioadIndexConfig, objectTree)
+
+	err = writeIndexFile(index, destFS)
 
 	return err
 }
 
-func IOFSFromS3URL(sess *session.Session, url *url.URL) (fs.FS, error) {
-	if url.Scheme != "s3" {
-		return nil, errors.New("requires s3 URL")
-	}
-
-	aferoFS := aferos3.NewFs(url.Host, sess)
-	subPathFS := afero.NewBasePathFs(aferoFS, url.Path)
-	ioFS := afero.NewIOFS(subPathFS)
-
-	return ioFS, nil
-}
-
-func getFSFromBucketURL(bucketURL *url.URL, sess *session.Session) (fs.FS, error) {
-	if bucketURL != nil {
-		s3Fs, err := IOFSFromS3URL(sess, bucketURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load FS from %v: %v", bucketURL.Redacted(), err)
-		}
-		return s3Fs, nil
-	}
-	return nil, nil
-}
-
-func getFSFromS3URLOrDefault(s3URL *url.URL, sess *session.Session, defaultFS fs.FS) (fs.FS, error) {
-	var f fs.FS
-	var err error
-	f = defaultFS
-	if s3URL != nil {
-		f, err = getFSFromBucketURL(s3URL, sess)
-		if err != nil {
-			return nil, err
-
-		}
-	}
-	return f, nil
-}
-
-func CopyFile(srcFS fs.FS, destFS afero.Fs) fs.WalkDirFunc {
-
-	return func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if d.IsDir() {
-			mkdirErr := destFS.MkdirAll(d.Name(), 0755)
-			if mkdirErr != nil {
-				return fmt.Errorf("failed to mkdir: %v", err)
-			}
-			return nil
-		}
-
-		if !d.IsDir() {
-			srcFile, err := srcFS.Open(path)
-			if err != nil {
-				return fmt.Errorf("failed to open source path: %v", err)
-			}
-			destFile, err := destFS.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-			if err != nil {
-				return fmt.Errorf("failed to open destination path: %v", err)
-			}
-
-			_, err = io.Copy(destFile, srcFile)
-			if err != nil {
-				return fmt.Errorf("failed to copy: %v", err)
-			}
-
-			defer destFile.Close()
-			defer srcFile.Close()
-		}
-		return nil
-	}
-}
-
-func copyStaticFiles(srcFS fs.FS, srcPath string, destFS afero.Fs, destPath string) error {
-	f := CopyFile(srcFS, destFS)
-	return fs.WalkDir(srcFS, srcPath, f)
-}
-
-func GenerateIndexFiles(ctx context.Context, cfg Config) error {
+func s3Session() *session.Session {
 	sess := session.Must(
 		session.NewSessionWithOptions(
 			session.Options{
@@ -253,93 +183,45 @@ func GenerateIndexFiles(ctx context.Context, cfg Config) error {
 			},
 		),
 	)
+	return sess
+}
 
-	s3Client := s3.New(sess, &aws.Config{
+func s3Client(sess *session.Session) *s3.S3 {
+	client := s3.New(sess, &aws.Config{
 		DisableRestProtocolURICleaning: aws.Bool(true),
 	})
-	xray.AWS(s3Client.Client)
+	xray.AWS(client.Client)
 
-	var t *ObjectTree
-	err := xray.Capture(ctx, "fetchBucketObjectTree", func(c context.Context) error {
-		var err error
-		t, err = fetchBucketObjectTree(ctx, s3Client, cfg.Bucket, cfg.ObjectPrefix)
-		//endTime := time.Now()
-		return err
-	})
-	if err != nil {
-		return err
-	}
+	return client
+}
 
-	var sp afero.Fs
-
-	serverSideEncryption := &cfg.ServerSideEncryption
-	bucketKeyEnabled := true
-	if *serverSideEncryption == "" {
-		serverSideEncryption = nil
-		bucketKeyEnabled = false
-	}
-
-	cacheControl := fmt.Sprintf("max-age=%d", (time.Minute/time.Second)*5)
-
-	fileProps := &aferos3.UploadedFileProperties{
-		CacheControl:         &cacheControl,
-		ServerSideEncryption: serverSideEncryption,
-		BucketKeyEnabled:     &bucketKeyEnabled,
-	}
-	sp = aferos3.NewFs(cfg.Bucket, sess)
-	sp.(*aferos3.Fs).FileProps = fileProps
-
-	if cfg.LocalOutputDirectory != "" {
-		// if we're testing locally
-		o := afero.NewOsFs()
-		mkdirErr := o.MkdirAll(cfg.LocalOutputDirectory, 0755)
-		if mkdirErr != nil {
-			return mkdirErr
-		}
-		sp = afero.NewBasePathFs(o, cfg.LocalOutputDirectory)
-	}
-
+func GenerateIndexFiles(objectTree *ObjectTree, outputFS afero.Fs, tmpl *template.Template, indexTemplate string, indexType string) error {
 	// select renderer
 	renderer := renderObjectTreeAsMultiPage
-	if cfg.IndexType == SinglePageIdentifier {
+	if indexType == SinglePageIdentifier {
 		renderer = renderObjectTreeAsSinglePage
 	}
 	// end select renderer
 
-	// STart of load templates
+	return renderer(objectTree, tmpl, indexTemplate, outputFS)
+}
 
-	tmplFS, err := getFSFromS3URLOrDefault(cfg.TemplateBucketURL, sess, defaultTemplateFS)
-	if err != nil {
-		log.Fatalf("err: failed to load templates from bucket %v: %v", cfg.TemplateBucketURL, err)
+func CreateObjectTree(objectLister ObjectLister, objectPrefix string) (*ObjectTree, error) {
+	objectTreeCfg := ObjectTreeConfig{
+		PrefixToStrip: objectPrefix,
+		Exclusions: Exclusions{
+			ExcludeKey("favicon.ico"),
+			ExcludeKey("index.html"),
+			ExcludePrefix("."),
+			ExcludeSuffix("/"),
+			ExcludeSuffix("/index.html"),
+		},
 	}
 
-	var tmpl *template.Template
-	err = xray.Capture(ctx, "loadTemplates", func(c context.Context) error {
-
-		tmpl, err = loadTemplates(tmplFS)
-		return err
-	})
+	objectTree := NewRootObjectTree(objectTreeCfg)
+	err := objectTree.AddObjectsFromLister(objectLister)
 	if err != nil {
-		log.Fatalf("err: failed to load templates: %v", err)
+		return nil, err
 	}
-
-	staticFS, err := getFSFromS3URLOrDefault(cfg.StaticBucketURL, sess, defaultStaticFS)
-	if err != nil {
-		log.Fatalf("err: failed to load static assets from bucket %v: %v", cfg.StaticBucketURL, err)
-	}
-
-	// copy static
-	err = xray.Capture(ctx, "copyStaticFiles", func(c context.Context) error {
-
-		return copyStaticFiles(staticFS, "static", sp, "static")
-	})
-	if err != nil {
-		log.Fatalf("err: failed to copy static files %v", err)
-	}
-
-	err = xray.Capture(ctx, "render", func(c context.Context) error {
-		return renderer(t, tmpl, cfg.IndexTemplate, sp)
-	})
-
-	return err
+	return objectTree, nil
 }

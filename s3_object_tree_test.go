@@ -11,25 +11,25 @@ func TestObjectTree(t *testing.T) {
 	var fileB = "a/b/c/fileB"
 	var fileC = "a/b/fileC"
 
-	stubs := []*Object{
-		{
+	stubs := []Object{
+		&object{
 			obj: &s3.Object{
 				Key: &fileA,
 			},
 		},
-		{
+		&object{
 			obj: &s3.Object{
 				Key: &fileB,
 			},
 		},
-		{
+		&object{
 			obj: &s3.Object{
 				Key: &fileC,
 			},
 		},
 	}
 
-	tree := CreateObjectTree(stubs)
+	tree := NewObjectTreeWithObjects(ObjectTreeConfig{}, stubs)
 
 	aChildLen := len(tree.Children["a"].Children)
 	if aChildLen != 1 {
@@ -86,3 +86,56 @@ func TestExclusions(t *testing.T) {
 		})
 	}
 }
+
+func TestAddExclusion(t *testing.T) {
+	tree := &ObjectTree{}
+	excludeFunc := ExcludeKey("testKey")
+	tree.AddExclusion(excludeFunc)
+	if len(tree.Exclusions) != 1 {
+		t.Errorf("AddExclusion() failed, exclusion not added")
+	}
+}
+
+func TestAddObject(t *testing.T) {
+	tree := &ObjectTree{}
+	obj := &object{obj: &s3.Object{Key: stringToPointer("testKey")}}
+	tree.AddObject(obj)
+	if len(tree.Objects) != 1 {
+		t.Errorf("AddObject() failed, object not added")
+	}
+}
+
+func TestAddChild(t *testing.T) {
+	tree := &ObjectTree{}
+	tree.AddChild("testChild")
+	if _, ok := tree.Children["testChild"]; !ok {
+		t.Errorf("AddChild() failed, child not added")
+	}
+}
+
+func TestIsVersionTree(t *testing.T) {
+	tree := &ObjectTree{DirName: "build"}
+	if !IsVersionTree(tree) {
+		t.Errorf("IsVersionTree() = false, want true")
+	}
+}
+
+func TestIsArchiveTree(t *testing.T) {
+	tree := &ObjectTree{}
+	child := tree.AddChild("testProduct")
+	child.AddChild("1.0.0")
+	if !IsArchiveTree(tree) {
+		t.Errorf("IsArchiveTree() = false, want true")
+	}
+}
+
+func TestIsProductTree(t *testing.T) {
+	tree := &ObjectTree{}
+	tree.AddChild("build")
+
+	if !IsProductTree(tree) {
+		t.Errorf("IsProductTree() = false, want true")
+	}
+}
+
+// Continue with the rest of the tests...

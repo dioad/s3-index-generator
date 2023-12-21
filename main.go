@@ -11,7 +11,8 @@ import (
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-xray-sdk-go/xray"
+	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/spf13/afero"
 )
 
 var (
@@ -25,7 +26,6 @@ type Config struct {
 	ObjectPrefix         string
 	TemplateBucketURL    *url.URL
 	StaticBucketURL      *url.URL
-	IndexPrefix          string
 	IndexType            string
 	IndexTemplate        string
 	ServerSideEncryption string
@@ -75,6 +75,8 @@ func parseConfigFromEnvironment() Config {
 }
 
 func HandleRequest(ctx context.Context, event events.S3Event) error {
+	sess := s3Session()
+
 	// lc, _ := lambdacontext.FromContext(ctx)
 	fmt.Printf("bucket: %v, key: %v, event: %v",
 		event.Records[0].S3.Bucket.Name,
@@ -88,30 +90,71 @@ func HandleRequest(ctx context.Context, event events.S3Event) error {
 		return errors.New("no BUCKET environment variable specified")
 	}
 
-	startTime := time.Now()
-	err := GenerateIndexFiles(ctx, cfg)
-	endTime := time.Now()
-	log.Printf("GenerateIndexFiles: duration:%v\n", endTime.Sub(startTime))
+	outputFS := NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
+
+	err := indexS3Bucket(sess, cfg, outputFS)
+	if err != nil {
+		return err
+	}
 
 	return err
 }
 
+func indexS3Bucket(sess *session.Session, cfg Config, outputFS afero.Fs) error {
+	tmpl, err := LoadTemplates(sess, cfg.TemplateBucketURL)
+	if err != nil {
+		return fmt.Errorf("failed to load templates: %w", err)
+	}
+
+	err = CopyStaticFiles(sess, outputFS, cfg.StaticBucketURL)
+	if err != nil {
+		return fmt.Errorf("failed to copy static files: %w", err)
+	}
+
+	s3Bucket := NewS3Bucket(sess, cfg.Bucket, cfg.ServerSideEncryption)
+
+	objectTree, err := CreateObjectTree(s3Bucket, cfg.ObjectPrefix)
+	if err != nil {
+		return fmt.Errorf("failed to create object tree: %w", err)
+	}
+
+	duration, err := TimeFunc(func() error { return GenerateIndexFiles(objectTree, outputFS, tmpl, cfg.IndexTemplate, cfg.IndexType) })
+	log.Printf("GenerateIndexFiles: duration:%v\n", duration)
+	return err
+}
+
+func TimeFunc(f func() error) (time.Duration, error) {
+	start := time.Now()
+	err := f()
+	return time.Since(start), err
+}
+
 func main() {
+
 	if os.Getenv("_HANDLER") != "" {
 		lambda.Start(HandleRequest)
 	} else {
 		if len(os.Args) >= 2 {
+			sess := s3Session()
+
 			cfg := parseConfigFromEnvironment()
 			cfg.Bucket = os.Args[1]
+
+			var outputFS afero.Fs
+			var err error
 			if len(os.Args) == 3 {
 				cfg.LocalOutputDirectory = os.Args[2]
+				outputFS, err = NewLocalOutputFS(cfg.LocalOutputDirectory)
+				if err != nil {
+					log.Fatalf("failed to create local output FS: %w", err)
+				}
+			} else {
+				outputFS = NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
 			}
-			ctxStart := context.Background()
-			ctx, seg := xray.BeginSegment(ctxStart, "local")
-			err := GenerateIndexFiles(ctx, cfg)
-			seg.Close(err)
+
+			err = indexS3Bucket(sess, cfg, outputFS)
 			if err != nil {
-				fmt.Printf("err: %v\n", err)
+				log.Fatalf("failed to generate index files: %w", err)
 			}
 		}
 	}

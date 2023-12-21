@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -11,7 +13,7 @@ type ObjectTree struct {
 	Nonce         string // extract to Page
 	FullPath      string
 	DirName       string
-	Objects       []*Object
+	Objects       []Object
 	Children      map[string]*ObjectTree
 	Exclusions    Exclusions
 	PrefixToStrip string
@@ -69,26 +71,12 @@ func (t *ObjectTree) AddExclusion(f ExcludeFunc) {
 	t.Exclusions = append(t.Exclusions, f)
 }
 
-// AddObject adds an object to the tree, if it doesn't already exist.
-func (t *ObjectTree) AddObject(obj *Object) {
-	if t.Objects == nil {
-		t.Objects = make([]*Object, 0)
-	}
-
-	//log.Printf("AddObject: %v", *obj.Key)
-	if t.Exclusions.Include(obj.Key()) {
-		//log.Printf("AddObject:Include: %v", *obj.Key)
-		t.Objects = append(t.Objects, obj)
-	}
-}
-
 // AddChild adds a child to the tree, if it doesn't already exist.
 func (t *ObjectTree) AddChild(name string) *ObjectTree {
 	if t.Children == nil {
 		t.Children = make(map[string]*ObjectTree)
 	}
 
-	//log.Printf("AddChild:Include: %v", name)
 	if !t.Exclusions.Include(name) {
 		return nil
 	}
@@ -104,59 +92,72 @@ func (t *ObjectTree) AddChild(name string) *ObjectTree {
 	return t.Children[name]
 }
 
-// IsVersionTree returns true if the tree name looks like a semver.
-func (t *ObjectTree) IsVersionTree() bool {
+func IsVersionTree(t *ObjectTree) bool {
 	return t.DirName == "build" || IsVersionLabel(t.DirName)
 }
 
-func (t *ObjectTree) IsArchiveTree() bool {
+func IsArchiveTree(t *ObjectTree) bool {
 	for _, v := range t.Children {
-		if v.IsProductTree() {
+		if IsProductTree(v) {
 			return true
 		}
 	}
 	return false
 }
 
-func (t *ObjectTree) ArchiveIndex(cfg IndexConfig) *ArchiveIndex {
-	if !t.IsArchiveTree() {
+func IsProductTree(t *ObjectTree) bool {
+	for _, v := range t.Children {
+		if IsVersionTree(v) {
+			return true
+		}
+	}
+	return false
+}
+
+func NewArchiveIndexForObjectTree(cfg IndexConfig, t *ObjectTree) *ArchiveIndex {
+	if !IsArchiveTree(t) {
 		return nil
 	}
 
 	archiveIndex := NewArchiveIndex()
 
 	for _, v := range t.Children {
-		if v.IsProductTree() {
-			archiveIndex.AddProduct(v.ProductIndex(cfg))
+		if IsProductTree(v) {
+			productIndex := NewProductIndexForObjectTree(cfg, v)
+			archiveIndex.AddProduct(productIndex)
 		}
 	}
 	return archiveIndex
 }
 
-// IsProductTree returns true if the tree contains children that look like a semver.
-func (t *ObjectTree) IsProductTree() bool {
-	for _, v := range t.Children {
-		if v.IsVersionTree() {
-			return true
-		}
-	}
-	return false
-}
-
-func (t *ObjectTree) ProductIndex(cfg IndexConfig) *ProductIndex {
-	if !t.IsProductTree() {
+func NewProductIndexForObjectTree(cfg IndexConfig, t *ObjectTree) *ProductIndex {
+	if !IsProductTree(t) {
 		return nil
 	}
-
 	productIndex := NewProductIndex(t.DirName)
 
 	for _, v := range t.Children {
-		if v.IsVersionTree() {
+		if IsVersionTree(v) {
 			productIndex.AddVersion(v.VersionIndex(cfg))
 		}
 	}
 
 	return productIndex
+}
+
+func NewVersionIndexForObjectTree(cfg IndexConfig, t *ObjectTree) *VersionIndex {
+	if !IsVersionTree(t) {
+		return nil
+	}
+
+	versionIndex := NewVersionIndex(cfg, t)
+
+	return versionIndex
+}
+
+// Deprecated: Use ProductIndex instead.
+func (t *ObjectTree) ProductIndex(cfg IndexConfig) *ProductIndex {
+	return NewProductIndexForObjectTree(cfg, t)
 }
 
 func (t *ObjectTree) ParentName() string {
@@ -167,61 +168,117 @@ func (t *ObjectTree) ParentFullPath() string {
 	return filepath.Clean(filepath.Join(t.FullPath, ".."))
 }
 
+// Deprecated: Use VersionIndex instead.
 func (t *ObjectTree) VersionIndex(cfg IndexConfig) *VersionIndex {
-	if !t.IsVersionTree() {
-		return nil
-	}
-
-	versionIndex := NewVersionIndex(cfg, t)
-
-	return versionIndex
+	return NewVersionIndexForObjectTree(cfg, t)
 }
 
 // AddPathToTree adds a path to the tree.
-func AddPathToTree(t *ObjectTree, pathParts []string, obj *Object) {
+//func AddPathToTree(t *ObjectTree, pathParts []string, obj Object) {
+//	if len(pathParts) == 1 {
+//		t.addSinglePartObject(obj)
+//	} else {
+//		newTree := t.AddChild(pathParts[0])
+//		if newTree != nil {
+//			AddPathToTree(newTree, pathParts[1:], obj)
+//		}
+//	}
+//}
+
+func (t *ObjectTree) addPathToTree(pathParts []string, obj Object) {
 	if len(pathParts) == 1 {
-		t.AddObject(obj)
+		t.addSinglePartObject(obj)
 	} else {
 		newTree := t.AddChild(pathParts[0])
 		if newTree != nil {
-			AddPathToTree(newTree, pathParts[1:], obj)
+			newTree.addPathToTree(pathParts[1:], obj)
 		}
 	}
 }
 
-// AddObjectToTree adds an object to the tree.
-func AddObjectToTree(t *ObjectTree, obj *Object) {
+// AddObject adds an object to the tree, if it doesn't already exist.
+func (t *ObjectTree) addSinglePartObject(obj Object) {
+	if t.Objects == nil {
+		t.Objects = make([]Object, 0)
+	}
+
+	//log.Printf("AddObject: %v", *obj.Key)
+	if t.Exclusions.Include(obj.Key()) {
+		//log.Printf("AddObject:Include: %v", *obj.Key)
+		t.Objects = append(t.Objects, obj)
+	}
+}
+
+func (t *ObjectTree) AddObject(obj Object) {
 	parts := strings.Split(obj.Key(), "/")
 	if len(parts) == 1 {
-		t.AddObject(obj)
+		t.addSinglePartObject(obj)
 	} else {
 		if parts[0] == t.PrefixToStrip {
 			parts = parts[1:]
 		}
-		AddPathToTree(t, parts, obj)
+		t.addPathToTree(parts, obj)
 	}
 }
 
-// AddObjectsToTree adds objects to the tree.
-func AddObjectsToTree(t *ObjectTree, objects []*Object) {
+func (t *ObjectTree) AddObjects(objects []Object) {
 	for _, o := range objects {
-		AddObjectToTree(t, o)
+		if o != nil {
+			t.AddObject(o)
+		}
 	}
 }
+
+func (r *ObjectTree) AddObjectsFromLister(bucket ObjectLister) error {
+	ctx := context.Background()
+
+	objects, err := bucket.ListObjects(ctx, r.PrefixToStrip)
+	if err != nil {
+		return fmt.Errorf("error listing objects: %w", err)
+	}
+
+	r.AddObjects(objects)
+
+	return nil
+}
+
+//// AddObjectToTree adds an object to the tree.
+//func AddObjectToTree(t *ObjectTree, obj Object) {
+//	for _, o := range objects {
+//		AddObjectToTree(t, o)
+//	}
+//}
+//
+//// AddObjectsToTree adds objects to the tree.
+//func AddObjectsToTree(t *ObjectTree, objects []Object) {
+//	for _, o := range objects {
+//		AddObjectToTree(t, o)
+//	}
+//}
 
 // NewRootObjectTree creates a new root object tree.
-func NewRootObjectTree() *ObjectTree {
+func NewRootObjectTree(cfg ObjectTreeConfig) *ObjectTree {
 	return &ObjectTree{
-		FullPath: "/",
-		DirName:  "/",
+		FullPath:      "/",
+		DirName:       "/",
+		PrefixToStrip: cfg.PrefixToStrip,
+		Exclusions:    cfg.Exclusions,
 	}
 }
 
-// CreateObjectTree creates an object tree.
-func CreateObjectTree(objects []*Object) *ObjectTree {
-	t := NewRootObjectTree()
+func NewObjectTreeWithObjects(cfg ObjectTreeConfig, objects []Object) *ObjectTree {
+	t := NewRootObjectTree(cfg)
 
-	AddObjectsToTree(t, objects)
+	t.AddObjects(objects)
 
 	return t
 }
+
+// CreateObjectTree creates an object tree.
+//func CreateObjectTree(objects []Object) *ObjectTree {
+//	t := NewRootObjectTree()
+//
+//	t.AddObjects(objects)
+//
+//	return t
+//}

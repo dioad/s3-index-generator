@@ -85,14 +85,18 @@ type IndexEntry struct {
 	Version  string `json:"version,omitempty"` // Dioad/Version
 }
 
-func NewIndexEntry(cfg IndexConfig, o *Object) *IndexEntry {
+func NewIndexEntry(cfg IndexConfig, o Object) *IndexEntry {
+	if _, exists := o.Tags()[cfg.VersionTagName]; !exists {
+		return nil
+	}
+
 	return &IndexEntry{
-		Arch:     o.Tags[cfg.ArchitectureTagName],
+		Arch:     o.Tags()[cfg.ArchitectureTagName],
 		Filename: o.BaseName(),
-		Name:     o.Tags[cfg.ProductTagName],
-		Os:       o.Tags[cfg.OSTagName],
+		Name:     o.Tags()[cfg.ProductTagName],
+		Os:       o.Tags()[cfg.OSTagName],
 		Url:      filepath.Join("/", o.Key()),
-		Version:  o.Tags[cfg.VersionTagName],
+		Version:  o.Tags()[cfg.VersionTagName],
 	}
 }
 
@@ -104,7 +108,7 @@ func NewVersionIndex(cfg IndexConfig, objectTree *ObjectTree) *VersionIndex {
 	}
 
 	for _, v := range objectTree.Objects {
-		indexEntry := v.IndexEntry(cfg)
+		indexEntry := NewIndexEntry(cfg, v)
 		if indexEntry != nil {
 			versionIndex.AddBuild(indexEntry)
 		}

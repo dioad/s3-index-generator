@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html/template"
+	"io"
 	"log"
 	"os"
 	"path"
@@ -15,6 +16,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-xray-sdk-go/xray"
 	"github.com/spf13/afero"
+	"golang.org/x/sync/errgroup"
 
 	//"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -76,9 +78,6 @@ func nonce() string {
 	return base64.StdEncoding.EncodeToString(nonce)
 }
 
-type ObjectTreeIndexGenerator func(cfg IndexConfig, objectTree *ObjectTree) any
-type ObjectTreeIndexIdentifier func(objectTree *ObjectTree) bool
-
 func IndexForObjectTree(cfg IndexConfig, objectTree *ObjectTree) any {
 	var index any
 	if IsProductTree(objectTree) {
@@ -93,86 +92,93 @@ func IndexForObjectTree(cfg IndexConfig, objectTree *ObjectTree) any {
 	return index
 }
 
-func writeObjectTreeIndex(cfg IndexConfig, objectTree *ObjectTree, destFS afero.Fs) error {
-	var index any
-	if IsProductTree(objectTree) {
-		index = NewProductIndexForObjectTree(cfg, objectTree)
-	}
-	if IsArchiveTree(objectTree) {
-		index = NewArchiveIndexForObjectTree(cfg, objectTree)
-	}
-	if IsVersionTree(objectTree) {
-		index = NewVersionIndexForObjectTree(cfg, objectTree)
-	}
-
-	return writeIndexFile(index, destFS)
+type IndexRenderer struct {
+	IndexFile string
+	Render    func(io.Writer, *ObjectTree) error
 }
 
-func writeIndexFile(index any, destFS afero.Fs) error {
+func JSONRenderer(config IndexConfig) IndexRenderer {
+	return IndexRenderer{
+		IndexFile: "index.json",
+		Render: func(stream io.Writer, objectTree *ObjectTree) error {
+			index := IndexForObjectTree(config, objectTree)
 
-	indexFile := path.Join("index.json")
+			jsonEncoder := json.NewEncoder(stream)
+
+			return jsonEncoder.Encode(index)
+		},
+	}
+}
+
+func HTMLRenderer(tmpl *template.Template, templateName string) IndexRenderer {
+	return IndexRenderer{
+		IndexFile: "index.html",
+		Render: func(stream io.Writer, objectTree *ObjectTree) error {
+			p := Page{
+				Nonce:      nonce(),
+				ObjectTree: objectTree,
+			}
+
+			return tmpl.ExecuteTemplate(stream, templateName, p)
+		},
+	}
+}
+
+func renderObjectTreeToFile(objectTree *ObjectTree, fileRenderer IndexRenderer, destFS afero.Fs) error {
+	indexFile := path.Join(fileRenderer.IndexFile)
 	f, err := destFS.OpenFile(indexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
 
-	jsonEncoder := json.NewEncoder(f)
-
-	err = jsonEncoder.Encode(index)
+	err = fileRenderer.Render(f, objectTree)
 	if err != nil {
-		closeErr := f.Close()
-		return fmt.Errorf("%w: %w", closeErr, err)
+		writerErr := f.Close()
+		return fmt.Errorf("failed to render index file: %w, failed to close file: %w", err, writerErr)
 	}
 
 	return f.Close()
 }
 
-func renderObjectTreeAsSinglePage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
-	f, err := destFS.OpenFile(IndexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		return err
-	}
+type IndexRenderers []IndexRenderer
 
-	p := Page{
-		Nonce:      nonce(),
-		ObjectTree: objectTree,
+func (r IndexRenderers) Render(destFS afero.Fs, objectTree *ObjectTree) error {
+	errGroup := errgroup.Group{}
+	for _, renderer := range r {
+		renderer := renderer
+		errGroup.Go(func() error {
+			return renderObjectTreeToFile(objectTree, renderer, destFS)
+		})
 	}
-
-	err = tmpl.ExecuteTemplate(f, templateName, p)
-	if err != nil {
-		closeErr := f.Close()
-		return fmt.Errorf("%w: %w", closeErr, err)
-	}
-
-	return f.Close()
+	return errGroup.Wait()
 }
 
-func renderObjectTreeAsMultiPage(objectTree *ObjectTree, tmpl *template.Template, templateName string, destFS afero.Fs) error {
-	err := renderObjectTreeAsSinglePage(objectTree, tmpl, templateName, destFS)
+func RenderObjectTree(objectTree *ObjectTree, renderers IndexRenderers, destFS afero.Fs, recursive bool) error {
+	errGroup := errgroup.Group{}
+	errGroup.SetLimit(10)
+
+	err := destFS.MkdirAll(objectTree.DirName, 0755)
 	if err != nil {
 		return err
 	}
 
-	for _, v := range objectTree.Children {
-		v := v
+	thisFS := afero.NewBasePathFs(destFS, objectTree.DirName)
 
-		err := destFS.MkdirAll(v.DirName, 0755)
-		if err != nil {
-			return err
-		}
+	errGroup.Go(func() error {
+		return renderers.Render(thisFS, objectTree)
+	})
 
-		subFS := afero.NewBasePathFs(destFS, v.DirName)
-		err = renderObjectTreeAsMultiPage(v, tmpl, templateName, subFS)
-		if err != nil {
-			return err
+	if recursive {
+		for _, v := range objectTree.Children {
+			v := v
+
+			errGroup.Go(func() error {
+				return RenderObjectTree(v, renderers, thisFS, recursive)
+			})
 		}
 	}
 
-	index := IndexForObjectTree(DioadIndexConfig, objectTree)
-
-	err = writeIndexFile(index, destFS)
-
-	return err
+	return errGroup.Wait()
 }
 
 func s3Session() *session.Session {
@@ -196,14 +202,20 @@ func s3Client(sess *session.Session) *s3.S3 {
 }
 
 func GenerateIndexFiles(objectTree *ObjectTree, outputFS afero.Fs, tmpl *template.Template, indexTemplate string, indexType string) error {
+
+	renderers := IndexRenderers{
+		HTMLRenderer(tmpl, indexTemplate),
+		JSONRenderer(DioadIndexConfig),
+	}
+
 	// select renderer
-	renderer := renderObjectTreeAsMultiPage
+	recursive := true
 	if indexType == SinglePageIdentifier {
-		renderer = renderObjectTreeAsSinglePage
+		recursive = false
 	}
 	// end select renderer
 
-	return renderer(objectTree, tmpl, indexTemplate, outputFS)
+	return RenderObjectTree(objectTree, renderers, outputFS, recursive)
 }
 
 func CreateObjectTree(objectLister ObjectLister, objectPrefix string) (*ObjectTree, error) {

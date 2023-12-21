@@ -73,7 +73,7 @@ func CopyFile(destFS afero.Fs, srcFS fs.FS) fs.WalkDirFunc {
 		if d.IsDir() {
 			mkdirErr := destFS.MkdirAll(d.Name(), 0755)
 			if mkdirErr != nil {
-				return fmt.Errorf("failed to mkdir: %v", err)
+				return fmt.Errorf("failed to mkdir: %v", mkdirErr)
 			}
 			return nil
 		}

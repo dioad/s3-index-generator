@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log"
 	"net/url"
@@ -18,7 +17,6 @@ import (
 var (
 	SinglePageIdentifier = "singlepage"
 	MultiPageIdentifier  = "multipage"
-	IndexFile            = "index.html"
 )
 
 type Config struct {
@@ -74,30 +72,24 @@ func parseConfigFromEnvironment() Config {
 	return cfg
 }
 
-func HandleRequest(ctx context.Context, event events.S3Event) error {
-	sess := s3Session()
+func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, event events.S3Event) error {
+	return func(ctx context.Context, event events.S3Event) error {
+		//lc, _ := lambdacontext.FromContext(ctx)
+		fmt.Printf("bucket: %v, key: %v, event: %v",
+			event.Records[0].S3.Bucket.Name,
+			event.Records[0].S3.Object.Key,
+			event.Records[0].EventName,
+		)
 
-	// lc, _ := lambdacontext.FromContext(ctx)
-	fmt.Printf("bucket: %v, key: %v, event: %v",
-		event.Records[0].S3.Bucket.Name,
-		event.Records[0].S3.Object.Key,
-		event.Records[0].EventName,
-	)
+		outputFS := NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
 
-	// We should figure bucket out from event
-	cfg := parseConfigFromEnvironment()
-	if cfg.Bucket == "" {
-		return errors.New("no BUCKET environment variable specified")
-	}
+		err := indexS3Bucket(sess, cfg, outputFS)
+		if err != nil {
+			return err
+		}
 
-	outputFS := NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
-
-	err := indexS3Bucket(sess, cfg, outputFS)
-	if err != nil {
 		return err
 	}
-
-	return err
 }
 
 func indexS3Bucket(sess *session.Session, cfg Config, outputFS afero.Fs) error {
@@ -113,12 +105,32 @@ func indexS3Bucket(sess *session.Session, cfg Config, outputFS afero.Fs) error {
 
 	s3Bucket := NewS3Bucket(sess, cfg.Bucket, cfg.ServerSideEncryption)
 
-	objectTree, err := CreateObjectTree(s3Bucket, cfg.ObjectPrefix)
+	var objectTree *ObjectTree
+	duration, err := TimeFunc(func() error {
+		objectTree, err = CreateObjectTree(s3Bucket, cfg.ObjectPrefix)
+		return err
+	})
+	log.Printf("CreateObjectTree: duration:%v\n", duration)
 	if err != nil {
 		return fmt.Errorf("failed to create object tree: %w", err)
 	}
 
-	duration, err := TimeFunc(func() error { return GenerateIndexFiles(objectTree, outputFS, tmpl, cfg.IndexTemplate, cfg.IndexType) })
+	renderers := IndexRenderers{
+		HTMLRenderer(tmpl, cfg.IndexTemplate),
+		JSONRenderer(DioadIndexConfig),
+	}
+
+	// select renderer
+	recursive := true
+	if cfg.IndexType == SinglePageIdentifier {
+		recursive = false
+	}
+	// end select renderer
+
+	duration, err = TimeFunc(func() error {
+		return RenderObjectTree(objectTree, renderers, outputFS, recursive)
+	})
+
 	log.Printf("GenerateIndexFiles: duration:%v\n", duration)
 	return err
 }
@@ -129,32 +141,43 @@ func TimeFunc(f func() error) (time.Duration, error) {
 	return time.Since(start), err
 }
 
+func localOutputFS(args []string) (afero.Fs, error) {
+	var outputFS afero.Fs
+	var err error
+	if len(os.Args) == 3 {
+		localOutputDirectory := args[2]
+		outputFS, err = NewLocalOutputFS(localOutputDirectory)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create local output FS: %w", err)
+		}
+	}
+
+	return outputFS, nil
+}
+
 func main() {
+	sess := s3Session()
+
+	cfg := parseConfigFromEnvironment()
 
 	if os.Getenv("_HANDLER") != "" {
-		lambda.Start(HandleRequest)
+		lambda.Start(HandleRequest(sess, cfg))
 	} else {
 		if len(os.Args) >= 2 {
-			sess := s3Session()
-
-			cfg := parseConfigFromEnvironment()
 			cfg.Bucket = os.Args[1]
 
-			var outputFS afero.Fs
-			var err error
-			if len(os.Args) == 3 {
-				cfg.LocalOutputDirectory = os.Args[2]
-				outputFS, err = NewLocalOutputFS(cfg.LocalOutputDirectory)
-				if err != nil {
-					log.Fatalf("failed to create local output FS: %w", err)
-				}
-			} else {
+			outputFS, err := localOutputFS(os.Args)
+			if err != nil {
+				log.Fatalf("failed to create local output FS: %v", err)
+			}
+
+			if outputFS == nil {
 				outputFS = NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
 			}
 
 			err = indexS3Bucket(sess, cfg, outputFS)
 			if err != nil {
-				log.Fatalf("failed to generate index files: %w", err)
+				log.Fatalf("failed to generate index files: %v", err)
 			}
 		}
 	}

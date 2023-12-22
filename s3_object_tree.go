@@ -138,7 +138,7 @@ func NewProductIndexForObjectTree(cfg IndexConfig, t *ObjectTree) *ProductIndex 
 
 	for _, v := range t.Children {
 		if IsVersionTree(v) {
-			productIndex.AddVersion(v.VersionIndex(cfg))
+			productIndex.AddVersion(NewVersionIndexForObjectTree(cfg, v))
 		}
 	}
 
@@ -155,11 +155,6 @@ func NewVersionIndexForObjectTree(cfg IndexConfig, t *ObjectTree) *VersionIndex 
 	return versionIndex
 }
 
-// Deprecated: Use ProductIndex instead.
-func (t *ObjectTree) ProductIndex(cfg IndexConfig) *ProductIndex {
-	return NewProductIndexForObjectTree(cfg, t)
-}
-
 func (t *ObjectTree) ParentName() string {
 	return filepath.Base(t.ParentFullPath())
 }
@@ -167,23 +162,6 @@ func (t *ObjectTree) ParentName() string {
 func (t *ObjectTree) ParentFullPath() string {
 	return filepath.Clean(filepath.Join(t.FullPath, ".."))
 }
-
-// Deprecated: Use VersionIndex instead.
-func (t *ObjectTree) VersionIndex(cfg IndexConfig) *VersionIndex {
-	return NewVersionIndexForObjectTree(cfg, t)
-}
-
-// AddPathToTree adds a path to the tree.
-//func AddPathToTree(t *ObjectTree, pathParts []string, obj Object) {
-//	if len(pathParts) == 1 {
-//		t.addSinglePartObject(obj)
-//	} else {
-//		newTree := t.AddChild(pathParts[0])
-//		if newTree != nil {
-//			AddPathToTree(newTree, pathParts[1:], obj)
-//		}
-//	}
-//}
 
 func (t *ObjectTree) addPathToTree(pathParts []string, obj Object) {
 	if len(pathParts) == 1 {
@@ -229,9 +207,7 @@ func (t *ObjectTree) AddObjects(objects []Object) {
 	}
 }
 
-func (r *ObjectTree) AddObjectsFromLister(bucket ObjectLister) error {
-	ctx := context.Background()
-
+func (r *ObjectTree) AddObjectsFromLister(ctx context.Context, bucket ObjectLister) error {
 	objects, err := bucket.ListObjects(ctx, r.PrefixToStrip)
 	if err != nil {
 		return fmt.Errorf("error listing objects: %w", err)
@@ -241,20 +217,6 @@ func (r *ObjectTree) AddObjectsFromLister(bucket ObjectLister) error {
 
 	return nil
 }
-
-//// AddObjectToTree adds an object to the tree.
-//func AddObjectToTree(t *ObjectTree, obj Object) {
-//	for _, o := range objects {
-//		AddObjectToTree(t, o)
-//	}
-//}
-//
-//// AddObjectsToTree adds objects to the tree.
-//func AddObjectsToTree(t *ObjectTree, objects []Object) {
-//	for _, o := range objects {
-//		AddObjectToTree(t, o)
-//	}
-//}
 
 // NewRootObjectTree creates a new root object tree.
 func NewRootObjectTree(cfg ObjectTreeConfig) *ObjectTree {
@@ -274,22 +236,13 @@ func NewObjectTreeWithObjects(cfg ObjectTreeConfig, objects []Object) *ObjectTre
 	return t
 }
 
-func NewObjectTreeFromLister(cfg ObjectTreeConfig, objectLister ObjectLister) (*ObjectTree, error) {
+func NewObjectTreeFromLister(ctx context.Context, cfg ObjectTreeConfig, objectLister ObjectLister) (*ObjectTree, error) {
 	t := NewRootObjectTree(cfg)
 
-	err := t.AddObjectsFromLister(objectLister)
+	err := t.AddObjectsFromLister(ctx, objectLister)
 	if err != nil {
 		return nil, err
 	}
 
 	return t, nil
 }
-
-// CreateObjectTree creates an object tree.
-//func CreateObjectTree(objects []Object) *ObjectTree {
-//	t := NewRootObjectTree()
-//
-//	t.AddObjects(objects)
-//
-//	return t
-//}

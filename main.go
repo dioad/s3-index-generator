@@ -83,7 +83,7 @@ func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, 
 
 		outputFS := NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
 
-		err := indexS3Bucket(sess, cfg, outputFS)
+		err := indexS3Bucket(ctx, sess, cfg, outputFS)
 		if err != nil {
 			return err
 		}
@@ -92,7 +92,7 @@ func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, 
 	}
 }
 
-func indexS3Bucket(sess *session.Session, cfg Config, outputFS afero.Fs) error {
+func indexS3Bucket(ctx context.Context, sess *session.Session, cfg Config, outputFS afero.Fs) error {
 	tmpl, err := LoadTemplates(sess, cfg.TemplateBucketURL)
 	if err != nil {
 		return fmt.Errorf("failed to load templates: %w", err)
@@ -107,7 +107,7 @@ func indexS3Bucket(sess *session.Session, cfg Config, outputFS afero.Fs) error {
 
 	var objectTree *ObjectTree
 	duration, err := TimeFunc(func() error {
-		objectTree, err = CreateObjectTree(s3Bucket, cfg.ObjectPrefix)
+		objectTree, err = CreateObjectTree(ctx, s3Bucket, cfg.ObjectPrefix)
 		return err
 	})
 	log.Printf("CreateObjectTree: duration:%v\n", duration)
@@ -130,9 +130,12 @@ func indexS3Bucket(sess *session.Session, cfg Config, outputFS afero.Fs) error {
 	duration, err = TimeFunc(func() error {
 		return RenderObjectTreeIndexes(objectTree, renderers, outputFS, recursive)
 	})
+	log.Printf("RenderObjectTreeIndexes: duration:%v\n", duration)
+	if err != nil {
+		return fmt.Errorf("failed to render object tree indexes: %w", err)
+	}
 
-	log.Printf("GenerateIndexFiles: duration:%v\n", duration)
-	return err
+	return nil
 }
 
 func TimeFunc(f func() error) (time.Duration, error) {
@@ -175,7 +178,7 @@ func main() {
 				outputFS = NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
 			}
 
-			err = indexS3Bucket(sess, cfg, outputFS)
+			err = indexS3Bucket(context.Background(), sess, cfg, outputFS)
 			if err != nil {
 				log.Fatalf("failed to generate index files: %v", err)
 			}

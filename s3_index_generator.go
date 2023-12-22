@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
@@ -135,13 +136,17 @@ func RenderObjectTreeIndexes(objectTree *ObjectTree, renderers IndexRenderers, d
 
 	err := destFS.MkdirAll(objectTree.DirName, 0755)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to mkdir: %w", err)
 	}
 
 	thisFS := afero.NewBasePathFs(destFS, objectTree.DirName)
 
 	errGroup.Go(func() error {
-		return renderers.Render(thisFS, objectTree)
+		err := renderers.Render(thisFS, objectTree)
+		if err != nil {
+			return fmt.Errorf("failed to render object tree indexes for %v: %w", objectTree.FullPath, err)
+		}
+		return nil
 	})
 
 	if recursive {
@@ -149,9 +154,18 @@ func RenderObjectTreeIndexes(objectTree *ObjectTree, renderers IndexRenderers, d
 			v := v
 
 			errGroup.Go(func() error {
-				return RenderObjectTreeIndexes(v, renderers, thisFS, recursive)
+				err := RenderObjectTreeIndexes(v, renderers, thisFS, recursive)
+				if err != nil {
+					return fmt.Errorf("failed to render object tree indexes for child %v: %w", v.FullPath, err)
+				}
+				return nil
 			})
 		}
+	}
+
+	err = errGroup.Wait()
+	if err != nil {
+		return fmt.Errorf("failed to render object tree indexes: %w", err)
 	}
 
 	return errGroup.Wait()
@@ -177,7 +191,7 @@ func s3Client(sess *session.Session) *s3.S3 {
 	return client
 }
 
-func CreateObjectTree(objectLister ObjectLister, objectPrefix string) (*ObjectTree, error) {
+func CreateObjectTree(ctx context.Context, objectLister ObjectLister, objectPrefix string) (*ObjectTree, error) {
 	objectTreeCfg := ObjectTreeConfig{
 		PrefixToStrip: objectPrefix,
 		Exclusions: Exclusions{
@@ -189,5 +203,5 @@ func CreateObjectTree(objectLister ObjectLister, objectPrefix string) (*ObjectTr
 		},
 	}
 
-	return NewObjectTreeFromLister(objectTreeCfg, objectLister)
+	return NewObjectTreeFromLister(ctx, objectTreeCfg, objectLister)
 }

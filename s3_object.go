@@ -78,12 +78,6 @@ func NewObjectWithTags(obj *s3.Object, tags map[string]string) Object {
 	return o
 }
 
-// FetchObjectsWithContext fetches objects from S3 with a context.
-// func FetchObjectsWithContext(ctx context.Context, s3Client *s3.S3, bucketName string, prefix string) ([]Object, error) {
-func FetchObjectsWithContext(ctx context.Context, bucket ObjectLister, prefix string) ([]Object, error) {
-	return bucket.ListObjects(ctx, prefix)
-}
-
 type ObjectLister interface {
 	ListObjects(ctx context.Context, prefix string) ([]Object, error)
 }
@@ -191,67 +185,3 @@ func (l *S3Bucket) fetchObjectTags(ctx context.Context, key string) (map[string]
 
 	return tagMap, nil
 }
-
-/*
-func fetchObjectTags(ctx context.Context, s3Client *s3.S3, bucketName string, key *string) ([]*s3.Tag, error) {
-	tagInput := s3.GetObjectTaggingInput{
-		Bucket: &bucketName,
-		Key:    key,
-	}
-	tags, err := s3Client.GetObjectTaggingWithContext(ctx, &tagInput)
-	if err != nil {
-		// Try again
-		fmt.Printf("error fetching tags for %v: %v (1/2)\n", *key, err)
-		time.Sleep(10 * time.Millisecond)
-		tags, err = s3Client.GetObjectTaggingWithContext(ctx, &tagInput)
-		if err != nil {
-			return nil, fmt.Errorf("error fetching tags for %v: %w (2/2)", *key, err)
-		}
-	}
-	return tags.TagSet, nil
-}
-
-func fetchObjectsAndTags(ctx context.Context, s3Client *s3.S3, bucketName string, objects *s3.ListObjectsOutput) ([]Object, error) {
-	items := make([]Object, 0)
-
-	objectsChan := make(chan *s3.Object, 30)
-
-	go func() {
-		defer close(objectsChan)
-		for _, o := range objects.Contents {
-			o := o
-			objectsChan <- o
-		}
-	}()
-
-	m := sync.Mutex{}
-
-	errGroup := errgroup.Group{}
-
-	for o := range objectsChan {
-		obj := o
-
-		errGroup.Go(func() error {
-			tags, err := fetchObjectTags(ctx, s3Client, bucketName, obj.Key)
-			if err != nil {
-				return err
-			}
-
-			object := NewObjectWithTags(obj, tags)
-
-			m.Lock()
-			items = append(items, object) //[index] = object
-			m.Unlock()
-			return nil
-		})
-	}
-
-	err := errGroup.Wait()
-	if err != nil {
-		fmt.Printf("err: %v\n", err)
-		return items, err
-	}
-
-	return items, nil
-}
-*/

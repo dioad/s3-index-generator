@@ -135,9 +135,6 @@ func RenderObjectTreeIndexes(objectTree *ObjectTree, renderers IndexRenderers, d
 	errGroup.SetLimit(10)
 
 	err := destFS.MkdirAll(objectTree.DirName, 0755)
-	if err != nil {
-		return fmt.Errorf("failed to mkdir: %w", err)
-	}
 
 	thisFS := afero.NewBasePathFs(destFS, objectTree.DirName)
 

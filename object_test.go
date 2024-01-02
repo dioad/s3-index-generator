@@ -8,19 +8,18 @@ import (
 )
 
 func TestNewObject(t *testing.T) {
-	obj := &s3.Object{Key: stringToPointer("testKey")}
-	o := NewObject(obj)
+	o := simpleObject("testKey")
 	if o.Key() != "testKey" {
 		t.Errorf("NewObject() = %v, want %v", o.Key(), "testKey")
 	}
 }
 
 func TestNewObjectWithTags(t *testing.T) {
-	obj := &s3.Object{Key: stringToPointer("testKey")}
-	tags := map[string]string{
+	o := simpleObject("testKey")
+	o.SetTags(map[string]string{
 		"tagKey": "tagValue",
-	}
-	o := NewObjectWithTags(obj, tags)
+	})
+
 	if o.Key() != "testKey" || o.Tags()["tagKey"] != "tagValue" {
 		t.Errorf("NewObjectWithTags() failed, object not created correctly")
 	}
@@ -48,19 +47,18 @@ func TestObjectMethods(t *testing.T) {
 }
 
 func TestIndexEntry(t *testing.T) {
-	obj := &s3.Object{Key: stringToPointer("testKey")}
-	tags := map[string]string{
-		"Dioad/Project": "testProject",
-		"Dioad/Version": "testVersion",
+	o := simpleObject("data/TestProduct/1.0.0/TestProduct_linux_amd64.zip")
+	cfg := IndexConfig{
+		KeyExtractions: ReleaseDetailKeyExtractions{
+			DefaultReleaseInfoKeyExtractor,
+		},
+	}
+	entry, err := NewIndexEntry(cfg, o)
+	if err != nil {
+		t.Fatalf("NewIndexEntry() failed, %v", err)
 	}
 
-	o := NewObjectWithTags(obj, tags)
-	cfg := IndexConfig{
-		ProductTagName: "Dioad/Project",
-		VersionTagName: "Dioad/Version",
-	}
-	entry := NewIndexEntry(cfg, o)
-	if entry.Name != "testProject" || entry.Version != "testVersion" {
+	if entry.Name != "TestProduct" || entry.Version != "1.0.0" {
 		t.Errorf("IndexEntry() failed, entry fields not correctly set")
 	}
 }

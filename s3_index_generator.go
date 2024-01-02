@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
@@ -13,14 +12,8 @@ import (
 	"os"
 	"path"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-xray-sdk-go/xray"
 	"github.com/spf13/afero"
 	"golang.org/x/sync/errgroup"
-
-	//"github.com/aws/aws-sdk-go/aws/credentials"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 //go:embed templates
@@ -30,10 +23,9 @@ var defaultTemplateFS embed.FS
 var defaultStaticFS embed.FS
 
 var DioadIndexConfig = IndexConfig{
-	ProductTagName:      "Dioad/Project",
-	VersionTagName:      "Dioad/Version",
-	ArchitectureTagName: "Dioad/Architecture",
-	OSTagName:           "Dioad/OS",
+	KeyExtractions: ReleaseDetailKeyExtractions{
+		DefaultReleaseInfoKeyExtractor,
+	},
 }
 
 type ObjectTreeConfig struct {
@@ -78,6 +70,7 @@ func JSONIndexRenderer(config IndexConfig) IndexRenderer {
 	return IndexRenderer{
 		IndexFile: "index.json",
 		Render: func(stream io.Writer, objectTree *ObjectTree) error {
+			// New Index
 			index := IndexForObjectTree(config, objectTree)
 
 			jsonEncoder := json.NewEncoder(stream)
@@ -130,75 +123,24 @@ func (r IndexRenderers) Render(destFS afero.Fs, objectTree *ObjectTree) error {
 	return errGroup.Wait()
 }
 
-func RenderObjectTreeIndexes(objectTree *ObjectTree, renderers IndexRenderers, destFS afero.Fs, recursive bool) error {
-	errGroup := errgroup.Group{}
-	errGroup.SetLimit(10)
+func RenderWalker(destFS afero.Fs, renderers IndexRenderers) ObjectTreeWalker {
+	return func(objectTree *ObjectTree) error {
+		err := destFS.MkdirAll(objectTree.FullPath, 0755)
+		if err != nil {
+			return fmt.Errorf("failed to create directory %v: %w", objectTree.FullPath, err)
+		}
+		thisFS := afero.NewBasePathFs(destFS, objectTree.FullPath)
 
-	err := destFS.MkdirAll(objectTree.DirName, 0755)
-
-	thisFS := afero.NewBasePathFs(destFS, objectTree.DirName)
-
-	errGroup.Go(func() error {
-		err := renderers.Render(thisFS, objectTree)
+		err = renderers.Render(thisFS, objectTree)
 		if err != nil {
 			return fmt.Errorf("failed to render object tree indexes for %v: %w", objectTree.FullPath, err)
 		}
 		return nil
-	})
-
-	if recursive {
-		for _, v := range objectTree.Children {
-			v := v
-
-			errGroup.Go(func() error {
-				err := RenderObjectTreeIndexes(v, renderers, thisFS, recursive)
-				if err != nil {
-					return fmt.Errorf("failed to render object tree indexes for child %v: %w", v.FullPath, err)
-				}
-				return nil
-			})
-		}
 	}
-
-	err = errGroup.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to render object tree indexes: %w", err)
-	}
-
-	return errGroup.Wait()
 }
 
-func s3Session() *session.Session {
-	sess := session.Must(
-		session.NewSessionWithOptions(
-			session.Options{
-				SharedConfigState: session.SharedConfigEnable,
-			},
-		),
-	)
-	return sess
-}
+func RenderObjectTreeIndexes(objectTree *ObjectTree, renderers IndexRenderers, destFS afero.Fs, recursive bool) error {
+	walker := RenderWalker(destFS, renderers)
 
-func s3Client(sess *session.Session) *s3.S3 {
-	client := s3.New(sess, &aws.Config{
-		DisableRestProtocolURICleaning: aws.Bool(true),
-	})
-	xray.AWS(client.Client)
-
-	return client
-}
-
-func CreateObjectTree(ctx context.Context, objectLister ObjectLister, objectPrefix string) (*ObjectTree, error) {
-	objectTreeCfg := ObjectTreeConfig{
-		PrefixToStrip: objectPrefix,
-		Exclusions: Exclusions{
-			ExcludeKey("favicon.ico"),
-			ExcludeKey("index.html"),
-			ExcludePrefix("."),
-			ExcludeSuffix("/"),
-			ExcludeSuffix("/index.html"),
-		},
-	}
-
-	return NewObjectTreeFromLister(ctx, objectTreeCfg, objectLister)
+	return objectTree.Walk(walker, recursive, true)
 }

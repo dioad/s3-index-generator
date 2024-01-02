@@ -93,26 +93,37 @@ func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, 
 }
 
 func indexS3Bucket(ctx context.Context, sess *session.Session, cfg Config, outputFS afero.Fs) error {
-	tmpl, err := LoadTemplates(sess, cfg.TemplateBucketURL)
-	if err != nil {
-		return fmt.Errorf("failed to load templates: %w", err)
-	}
-
-	err = CopyStaticFiles(sess, outputFS, cfg.StaticBucketURL)
+	err := CopyStaticFiles(sess, outputFS, cfg.StaticBucketURL)
 	if err != nil {
 		return fmt.Errorf("failed to copy static files: %w", err)
 	}
 
 	s3Bucket := NewS3Bucket(sess, cfg.Bucket, cfg.ServerSideEncryption)
 
-	var objectTree *ObjectTree
+	objectTreeCfg := ObjectTreeConfig{
+		PrefixToStrip: cfg.ObjectPrefix,
+		Exclusions: Exclusions{
+			HasKey("favicon.ico"),
+			HasKey("index.html"),
+			HasPrefix("."),
+			HasSuffix("/"),
+			HasSuffix("/index.html"),
+		},
+	}
+	objectTree := NewRootObjectTree(objectTreeCfg)
+
 	duration, err := TimeFunc(func() error {
-		objectTree, err = CreateObjectTree(ctx, s3Bucket, cfg.ObjectPrefix)
-		return err
+		// return objectTree.AddObjectsWithPrefixFromLister(ctx, s3Bucket.ListObjectsWithTags, "s3-index-generator/")
+		return objectTree.AddAllObjectsFromLister(ctx, s3Bucket.ListObjectsWithTags)
 	})
 	log.Printf("CreateObjectTree: duration:%v\n", duration)
 	if err != nil {
 		return fmt.Errorf("failed to create object tree: %w", err)
+	}
+
+	tmpl, err := LoadTemplates(sess, cfg.TemplateBucketURL)
+	if err != nil {
+		return fmt.Errorf("failed to load templates: %w", err)
 	}
 
 	renderers := IndexRenderers{
@@ -159,6 +170,16 @@ func localOutputFS(args []string) (afero.Fs, error) {
 }
 
 func main() {
+	//
+	//cpuProf, err := os.Create("cpu.pprof")
+	//heapProf, err := os.Create("heap.pprof")
+	//if err != nil {
+	//	log.Fatal(err)
+	//}
+	//pprof.StartCPUProfile(cpuProf)
+	//
+	//defer pprof.StopCPUProfile()
+	//
 	sess := s3Session()
 
 	cfg := parseConfigFromEnvironment()
@@ -179,6 +200,7 @@ func main() {
 			}
 
 			err = indexS3Bucket(context.Background(), sess, cfg, outputFS)
+			//	pprof.WriteHeapProfile(heapProf)
 			if err != nil {
 				log.Fatalf("failed to generate index files: %v", err)
 			}

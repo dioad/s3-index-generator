@@ -1,31 +1,83 @@
 package main
 
 import (
+	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/coreos/go-semver/semver"
 )
 
+var (
+	DefaultReleaseInfoKeyExtractor = ReleaseDetailsKeyExtractor(`(?P<Prefix>.*?/)?(?P<Product>[^/]+)/(?P<Version>[^/]+)/(?P<PackageName>[^_]+)(_|_(?P<Extra>.*?)_)(?P<OS>[^_\d]+)_(?P<Arch>[^\.]+)\.(?P<ArchiveType>[^/]+)$`)
+)
+
+type ReleaseDetailsKeyExtractor string
+
+func extractMetadataFromKey(regExp, key string) (map[string]string, error) {
+	re, err := regexp.Compile(regExp)
+	if err != nil {
+		return nil, err
+	}
+
+	if !re.Match([]byte(key)) {
+		return nil, fmt.Errorf("failed to match")
+	}
+
+	match := re.FindStringSubmatch(key)
+	results := map[string]string{}
+	for i, name := range match {
+		if re.SubexpNames()[i] == "" {
+			continue
+		}
+		results[re.SubexpNames()[i]] = name
+	}
+
+	return results, nil
+}
+
+func (k ReleaseDetailsKeyExtractor) ExtractReleaseDetails(key string) (map[string]string, error) {
+	results, err := extractMetadataFromKey(string(k), key)
+	if err != nil {
+		return nil, err
+	}
+
+	versionStr := results["Version"]
+	if ver, err := ParseSemVer(versionStr); err == nil {
+		results["Version"] = ver.String()
+	}
+
+	return results, nil
+}
+
+type ReleaseDetailKeyExtractions []ReleaseDetailsKeyExtractor
+
+func (k ReleaseDetailKeyExtractions) ExtractReleaseDetails(key string) (map[string]string, error) {
+	for _, extractor := range k {
+		if results, err := extractor.ExtractReleaseDetails(key); err == nil {
+			return results, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to match")
+}
+
 type IndexConfig struct {
-	ArchitectureTagName string // "Dioad/Arch"
-	ProductTagName      string // "Dioad/Project"
-	OSTagName           string // "Dioad/OS"
-	VersionTagName      string // "Dioad/Version"
+	KeyExtractions ReleaseDetailKeyExtractions // `.*?/(?P<Product>[^/]+)/(?P<Version>[^/]+)/(?P<PackageName>[^_]+)(_|_(?P<Extra>.*?)_)(?P<OS>[^_\d]+)_(?P<Arch>[^\.]+)\.(?P<ArchiveType>[^/]+)$`
 }
 
 type ArchiveIndex struct {
 	Product map[string]*ProductIndex `json:"product,omitempty"`
 }
 
+func (a *ArchiveIndex) AddProduct(p *ProductIndex) {
+	a.Product[p.Name] = p
+}
+
 func NewArchiveIndex() *ArchiveIndex {
 	return &ArchiveIndex{
 		Product: make(map[string]*ProductIndex),
 	}
-}
-
-func (a *ArchiveIndex) AddProduct(p *ProductIndex) {
-	a.Product[p.Name] = p
 }
 
 type ProductIndex struct {
@@ -70,10 +122,31 @@ type VersionIndex struct {
 	//	ShasumsSignature  string   `json:"shasums_signature"`
 	//	ShasumsSignatures []string `json:"shasums_signatures"`
 	Version string `json:"version,omitempty"`
+	// CommitSha          string   `json:"commit"`
 }
 
 func (v *VersionIndex) AddBuild(build *IndexEntry) {
 	v.Builds = append(v.Builds, build)
+}
+
+func NewVersionIndex(cfg IndexConfig, objectTree *ObjectTree) *VersionIndex {
+	versionIndex := &VersionIndex{
+		Name:    objectTree.ParentName(),
+		Version: objectTree.DirName,
+		Builds:  make([]*IndexEntry, 0),
+	}
+
+	for _, v := range objectTree.Objects {
+		indexEntry, err := NewIndexEntry(cfg, v)
+		if err == nil {
+			versionIndex.AddBuild(indexEntry)
+		}
+
+		if strings.HasSuffix(v.Key(), "_SHA256SUMS") {
+			versionIndex.Shasums = v.Key()
+		}
+	}
+	return versionIndex
 }
 
 type IndexEntry struct {
@@ -85,37 +158,24 @@ type IndexEntry struct {
 	Version  string `json:"version,omitempty"` // Dioad/Version
 }
 
-func NewIndexEntry(cfg IndexConfig, o Object) *IndexEntry {
-	if _, exists := o.Tags()[cfg.VersionTagName]; !exists {
-		return nil
+func NewIndexEntry(cfg IndexConfig, o Object) (*IndexEntry, error) {
+	releaseDetails, err := cfg.KeyExtractions.ExtractReleaseDetails(o.Key())
+	if err != nil {
+		return nil, err
 	}
 
-	return &IndexEntry{
-		Arch:     o.Tags()[cfg.ArchitectureTagName],
+	if _, exists := releaseDetails["Version"]; !exists {
+		return nil, fmt.Errorf("failed to extract version")
+	}
+
+	entry := &IndexEntry{
+		Arch:     releaseDetails["Arch"],
 		Filename: o.BaseName(),
-		Name:     o.Tags()[cfg.ProductTagName],
-		Os:       o.Tags()[cfg.OSTagName],
+		Name:     releaseDetails["Product"],
+		Os:       releaseDetails["OS"],
 		Url:      filepath.Join("/", o.Key()),
-		Version:  o.Tags()[cfg.VersionTagName],
-	}
-}
-
-func NewVersionIndex(cfg IndexConfig, objectTree *ObjectTree) *VersionIndex {
-	versionIndex := &VersionIndex{
-		Name:    objectTree.ParentName(),
-		Version: objectTree.DirName,
-		Builds:  make([]*IndexEntry, 0),
+		Version:  releaseDetails["Version"],
 	}
 
-	for _, v := range objectTree.Objects {
-		indexEntry := NewIndexEntry(cfg, v)
-		if indexEntry != nil {
-			versionIndex.AddBuild(indexEntry)
-		}
-
-		if strings.HasSuffix(v.Key(), "_SHA256SUMS") {
-			versionIndex.Shasums = v.Key()
-		}
-	}
-	return versionIndex
+	return entry, nil
 }

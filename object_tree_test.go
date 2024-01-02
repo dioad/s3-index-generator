@@ -1,6 +1,8 @@
 package main
 
 import (
+	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/service/s3"
@@ -12,21 +14,9 @@ func TestObjectTree(t *testing.T) {
 	var fileC = "a/b/fileC"
 
 	stubs := []Object{
-		&object{
-			obj: &s3.Object{
-				Key: &fileA,
-			},
-		},
-		&object{
-			obj: &s3.Object{
-				Key: &fileB,
-			},
-		},
-		&object{
-			obj: &s3.Object{
-				Key: &fileC,
-			},
-		},
+		simpleObject(fileA),
+		simpleObject(fileB),
+		simpleObject(fileC),
 	}
 
 	tree := NewObjectTreeWithObjects(ObjectTreeConfig{}, stubs)
@@ -57,22 +47,22 @@ func TestExclusions(t *testing.T) {
 	}{
 		"key exclude blah.zip": {
 			objectKey:  "blah.zip",
-			exclusions: Exclusions{ExcludeKey("blah.zip")},
+			exclusions: Exclusions{HasKey("blah.zip")},
 			include:    false,
 		},
 		"suffix exclude index.html": {
 			objectKey:  "index.html",
-			exclusions: Exclusions{ExcludeSuffix("index.html")},
+			exclusions: Exclusions{HasSuffix("index.html")},
 			include:    false,
 		},
 		"suffix include blah.zip": {
 			objectKey:  "blah.zip",
-			exclusions: Exclusions{ExcludeSuffix("index.html")},
+			exclusions: Exclusions{HasSuffix("index.html")},
 			include:    true,
 		},
 		"prefix exclude .asdf/ prefix": {
 			objectKey:  ".asdf/blah",
-			exclusions: Exclusions{ExcludePrefix(".")},
+			exclusions: Exclusions{HasPrefix(".")},
 			include:    false,
 		},
 	}
@@ -84,15 +74,6 @@ func TestExclusions(t *testing.T) {
 				t.Fatalf("got %v, expected %v", include, tc.include)
 			}
 		})
-	}
-}
-
-func TestAddExclusion(t *testing.T) {
-	tree := &ObjectTree{}
-	excludeFunc := ExcludeKey("testKey")
-	tree.AddExclusion(excludeFunc)
-	if len(tree.Exclusions) != 1 {
-		t.Errorf("AddExclusion() failed, exclusion not added")
 	}
 }
 
@@ -113,29 +94,45 @@ func TestAddChild(t *testing.T) {
 	}
 }
 
-func TestIsVersionTree(t *testing.T) {
-	tree := &ObjectTree{DirName: "build"}
-	if !IsVersionTree(tree) {
-		t.Errorf("IsVersionTree() = false, want true")
-	}
-}
+func TestProductTree(t *testing.T) {
+	var fileA = "product/1.2.0/v1.2.3/product_linux_amd64.zip"
 
-func TestIsArchiveTree(t *testing.T) {
-	tree := &ObjectTree{}
-	child := tree.AddChild("testProduct")
-	child.AddChild("1.0.0")
+	stubs := []Object{
+		simpleObject(fileA),
+	}
+
+	tree := NewObjectTreeWithObjects(ObjectTreeConfig{}, stubs)
+
 	if !IsArchiveTree(tree) {
-		t.Errorf("IsArchiveTree() = false, want true")
+		t.Fatalf("expected product tree, got %v", tree)
 	}
 }
 
-func TestIsProductTree(t *testing.T) {
-	tree := &ObjectTree{}
-	tree.AddChild("build")
+func TestWalker(t *testing.T) {
+	var fileA = "product/1.2.0/v1.2.3/product_linux_amd64.zip"
 
-	if !IsProductTree(tree) {
-		t.Errorf("IsProductTree() = false, want true")
+	stubs := []Object{
+		simpleObject(fileA),
 	}
+
+	tree := NewObjectTreeWithObjects(ObjectTreeConfig{}, stubs)
+
+	paths := make([]Object, 0)
+
+	walker := func(tree *ObjectTree) error {
+		fmt.Printf("walker: %v\n", filepath.Join(tree.FullPath, "index.json"))
+
+		paths = append(paths, tree.Objects...)
+		return nil
+	}
+
+	err := tree.Walk(walker, true, true)
+
+	if err != nil {
+		t.Fatalf("expected no error, got %v", err)
+	}
+
+	fmt.Printf("%v\n", paths)
 }
 
 // Continue with the rest of the tests...

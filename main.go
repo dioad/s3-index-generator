@@ -114,7 +114,7 @@ func indexS3Bucket(ctx context.Context, sess *session.Session, cfg Config, outpu
 
 	duration, err := TimeFunc(func() error {
 		// return objectTree.AddObjectsWithPrefixFromLister(ctx, s3Bucket.ListObjectsWithTags, "s3-index-generator/")
-		return objectTree.AddAllObjectsFromLister(ctx, s3Bucket.ListObjectsWithTags)
+		return objectTree.AddAllObjectsFromLister(ctx, s3Bucket.ListObjects)
 	})
 	log.Printf("CreateObjectTree: duration:%v\n", duration)
 	if err != nil {

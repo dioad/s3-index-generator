@@ -69,7 +69,7 @@ jobs:
     env:
       GOOS: ${{ matrix.os }}
       GOARCH: ${{ matrix.arch }}
-      OUTPUT_FILE: function-${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}
+      OUTPUT_FILE: bootstrap
 
     steps:
     - name: Set up Go 1.x
@@ -133,7 +133,8 @@ jobs:
         os: [linux]
         arch: [amd64]
     env:
-      INPUT_FILE: function-${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}
+      #INPUT_FILE: function-${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}
+      INPUT_FILE: bootstrap
       OUTPUT_FILE: function-${{ github.event.repository.name }}_${{ needs.metadata.outputs.version }}.zip
 
     steps:

@@ -1,6 +1,6 @@
 module github.com/dioad/s3-index-generator
 
-go 1.22
+go 1.22.1
 
 replace github.com/fclairamb/afero-s3 v0.3.0 => github.com/patdowney/afero-s3 v0.3.2
 

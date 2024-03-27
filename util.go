@@ -114,7 +114,7 @@ func NewLocalOutputFS(localOutputDirectory string) (afero.Fs, error) {
 	return afero.NewBasePathFs(o, localOutputDirectory), nil
 }
 
-func NewS3OutputFS(sess *session.Session, bucketName string, serverSideEncryption *string) afero.Fs {
+func NewS3OutputFS(sess *session.Session, bucketName string, prefix string, serverSideEncryption *string) afero.Fs {
 	bucketKeyEnabled := true
 	if serverSideEncryption != nil && *serverSideEncryption == "" {
 		serverSideEncryption = nil
@@ -131,7 +131,15 @@ func NewS3OutputFS(sess *session.Session, bucketName string, serverSideEncryptio
 
 	sp := aferos3.NewFs(bucketName, sess)
 	sp.FileProps = fileProps
-	return sp
+
+	var s afero.Fs
+	if prefix != "" {
+		s = afero.NewBasePathFs(sp, prefix)
+	} else {
+		s = sp
+	}
+
+	return s
 }
 
 func LoadTemplates(sess *session.Session, templateBucketURL *url.URL) (*template.Template, error) {

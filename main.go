@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -14,18 +16,28 @@ import (
 	"github.com/spf13/afero"
 )
 
+type IndexFormat string
+
 var (
 	SinglePageIdentifier = "singlepage"
 	MultiPageIdentifier  = "multipage"
+
+	JSONIndex IndexFormat = "json"
+	HTMLIndex IndexFormat = "html"
 )
 
 type Config struct {
-	Bucket               string
+	// Bucket is the S3 bucket to be indexed
+	Bucket string
+	// BucketDestinationPrefix is the prefix within the bucket to root the generated indexes
+	DestinationBucketPrefix string
+	// ObjectPrefix is the prefix of the S3 objects to be indexed
 	ObjectPrefix         string
 	TemplateBucketURL    *url.URL
 	StaticBucketURL      *url.URL
 	IndexType            string
 	IndexTemplate        string
+	IndexFormats         []IndexFormat
 	ServerSideEncryption string
 	LocalOutputDirectory string
 }
@@ -36,6 +48,7 @@ func parseConfigFromEnvironment() Config {
 	var ok bool
 
 	cfg.Bucket, _ = os.LookupEnv("BUCKET")
+	cfg.DestinationBucketPrefix, _ = os.LookupEnv("DESTINATION_BUCKET_PREFIX")
 	cfg.ObjectPrefix, _ = os.LookupEnv("OBJECT_PREFIX")
 
 	if cfg.IndexType, ok = os.LookupEnv("INDEX_TYPE"); !ok {
@@ -44,6 +57,14 @@ func parseConfigFromEnvironment() Config {
 		if cfg.IndexType != MultiPageIdentifier && cfg.IndexType != SinglePageIdentifier {
 			log.Fatalf("err: expected multipage or singlepage, found %v", cfg.IndexType)
 		}
+	}
+
+	if indexFormatValue, ok := os.LookupEnv("INDEX_FORMATS"); ok {
+		cfg.IndexFormats = indexFormats(indexFormatValue)
+	}
+
+	if len(cfg.IndexFormats) == 0 {
+		cfg.IndexFormats = []IndexFormat{HTMLIndex, JSONIndex}
 	}
 
 	if cfg.IndexTemplate, ok = os.LookupEnv("INDEX_TEMPLATE"); !ok {
@@ -72,16 +93,36 @@ func parseConfigFromEnvironment() Config {
 	return cfg
 }
 
+func indexFormats(indexFormat string) []IndexFormat {
+	formats := make([]IndexFormat, 0)
+	indexFormatStrings := strings.Split(indexFormat, ",")
+	for _, format := range indexFormatStrings {
+		if format == "json" {
+			formats = append(formats, JSONIndex)
+		}
+		if format == "html" {
+			formats = append(formats, HTMLIndex)
+		}
+	}
+	return formats
+}
+
 func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, event events.S3Event) error {
 	return func(ctx context.Context, event events.S3Event) error {
 		//lc, _ := lambdacontext.FromContext(ctx)
-		fmt.Printf("bucket: %v, key: %v, event: %v",
+		fmt.Printf("records length: %d", len(event.Records))
+		fmt.Printf("record[0]: bucket: %v, key: %v, event: %v",
 			event.Records[0].S3.Bucket.Name,
 			event.Records[0].S3.Object.Key,
 			event.Records[0].EventName,
 		)
 
-		outputFS := NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
+		if !strings.HasPrefix(event.Records[0].S3.Object.Key, cfg.ObjectPrefix) {
+			fmt.Printf("skipping: key %v does not match prefix %v", event.Records[0].S3.Object.Key, cfg.ObjectPrefix)
+			return nil
+		}
+
+		outputFS := NewS3OutputFS(sess, cfg.Bucket, "", &cfg.ServerSideEncryption)
 
 		err := indexS3Bucket(ctx, sess, cfg, outputFS)
 		if err != nil {
@@ -93,12 +134,19 @@ func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, 
 }
 
 func indexS3Bucket(ctx context.Context, sess *session.Session, cfg Config, outputFS afero.Fs) error {
-	err := CopyStaticFiles(sess, outputFS, cfg.StaticBucketURL)
+	s3Bucket := NewS3Bucket(sess, cfg.Bucket, cfg.ServerSideEncryption)
+
+	renderers, err := indexRenderers(sess, cfg)
 	if err != nil {
-		return fmt.Errorf("failed to copy static files: %w", err)
+		return err
 	}
 
-	s3Bucket := NewS3Bucket(sess, cfg.Bucket, cfg.ServerSideEncryption)
+	if slices.Contains(cfg.IndexFormats, HTMLIndex) {
+		err := CopyStaticFiles(sess, outputFS, cfg.StaticBucketURL)
+		if err != nil {
+			return fmt.Errorf("failed to copy static files: %w", err)
+		}
+	}
 
 	objectTreeCfg := ObjectTreeConfig{
 		PrefixToStrip: cfg.ObjectPrefix,
@@ -121,16 +169,6 @@ func indexS3Bucket(ctx context.Context, sess *session.Session, cfg Config, outpu
 		return fmt.Errorf("failed to create object tree: %w", err)
 	}
 
-	tmpl, err := LoadTemplates(sess, cfg.TemplateBucketURL)
-	if err != nil {
-		return fmt.Errorf("failed to load templates: %w", err)
-	}
-
-	renderers := IndexRenderers{
-		HTMLIndexRenderer(tmpl, cfg.IndexTemplate),
-		JSONIndexRenderer(DioadIndexConfig),
-	}
-
 	// select renderer
 	recursive := true
 	if cfg.IndexType == SinglePageIdentifier {
@@ -147,6 +185,25 @@ func indexS3Bucket(ctx context.Context, sess *session.Session, cfg Config, outpu
 	}
 
 	return nil
+}
+
+func indexRenderers(sess *session.Session, cfg Config) (IndexRenderers, error) {
+	renderers := make(IndexRenderers, 0)
+
+	for _, format := range cfg.IndexFormats {
+		switch format {
+		case JSONIndex:
+			renderers = append(renderers, JSONIndexRenderer(DioadIndexConfig))
+		case HTMLIndex:
+			tmpl, err := LoadTemplates(sess, cfg.TemplateBucketURL)
+			if err != nil {
+				return nil, fmt.Errorf("failed to load templates: %w", err)
+			}
+			renderers = append(renderers, HTMLIndexRenderer(tmpl, cfg.IndexTemplate))
+		}
+	}
+
+	return renderers, nil
 }
 
 func TimeFunc(f func() error) (time.Duration, error) {
@@ -188,7 +245,7 @@ func main() {
 		lambda.Start(HandleRequest(sess, cfg))
 	} else {
 		if len(os.Args) >= 2 {
-			cfg.Bucket = os.Args[1]
+			cfg.Bucket, cfg.DestinationBucketPrefix, _ = strings.Cut(os.Args[1], "/")
 
 			outputFS, err := localOutputFS(os.Args)
 			if err != nil {
@@ -196,7 +253,7 @@ func main() {
 			}
 
 			if outputFS == nil {
-				outputFS = NewS3OutputFS(sess, cfg.Bucket, &cfg.ServerSideEncryption)
+				outputFS = NewS3OutputFS(sess, cfg.Bucket, "", &cfg.ServerSideEncryption)
 			}
 
 			err = indexS3Bucket(context.Background(), sess, cfg, outputFS)

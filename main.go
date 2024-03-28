@@ -122,7 +122,7 @@ func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, 
 			return nil
 		}
 
-		outputFS := NewS3OutputFS(sess, cfg.Bucket, "", &cfg.ServerSideEncryption)
+		outputFS := NewS3OutputFS(sess, cfg.Bucket, cfg.DestinationBucketPrefix, &cfg.ServerSideEncryption)
 
 		err := indexS3Bucket(ctx, sess, cfg, outputFS)
 		if err != nil {

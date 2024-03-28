@@ -56,7 +56,7 @@ jobs:
     env:
       GOOS: ${{ matrix.os }}
       GOARCH: ${{ matrix.arch }}
-      OUTPUT_BINARY: function-${{ github.event.repository.name }}
+      OUTPUT_BINARY: bootstrap
       OUTPUT_ZIP: function-${{ github.event.repository.name }}.zip
 
     steps:

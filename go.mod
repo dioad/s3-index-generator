@@ -5,7 +5,7 @@ go 1.22.1
 replace github.com/fclairamb/afero-s3 v0.3.0 => github.com/patdowney/afero-s3 v0.3.2
 
 require (
-	github.com/aws/aws-lambda-go v1.46.0
+	github.com/aws/aws-lambda-go v1.47.0
 	github.com/aws/aws-sdk-go v1.51.9
 	github.com/aws/aws-xray-sdk-go v1.8.3
 	github.com/cenkalti/backoff/v3 v3.2.2

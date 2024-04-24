@@ -7,7 +7,7 @@ replace github.com/fclairamb/afero-s3 v0.3.0 => github.com/patdowney/afero-s3 v0
 require (
 	github.com/aws/aws-lambda-go v1.46.0
 	github.com/aws/aws-sdk-go v1.51.9
-	github.com/aws/aws-xray-sdk-go v1.8.3
+	github.com/aws/aws-xray-sdk-go v1.8.4
 	github.com/cenkalti/backoff/v3 v3.2.2
 	github.com/coreos/go-semver v0.3.1
 	github.com/fclairamb/afero-s3 v0.3.0
@@ -26,7 +26,7 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.52.0 // indirect
-	golang.org/x/net v0.22.0 // indirect
+	golang.org/x/net v0.23.0 // indirect
 	golang.org/x/sys v0.18.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20240325203815-454cdb8f5daa // indirect

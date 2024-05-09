@@ -12,7 +12,7 @@ require (
 	github.com/coreos/go-semver v0.3.1
 	github.com/fclairamb/afero-s3 v0.3.0
 	github.com/spf13/afero v1.11.0
-	github.com/stretchr/testify v1.8.0
+	github.com/stretchr/testify v1.9.0
 	golang.org/x/sync v0.7.0
 )
 

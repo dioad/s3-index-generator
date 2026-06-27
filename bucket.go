@@ -6,14 +6,21 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/cenkalti/backoff/v3"
 	"golang.org/x/sync/errgroup"
 )
 
+// s3ObjectAPI is the subset of the S3 API used by S3Bucket, allowing mocking in tests.
+type s3ObjectAPI interface {
+	ListObjectsPagesWithContext(ctx context.Context, input *s3.ListObjectsInput, fn func(*s3.ListObjectsOutput, bool) bool, opts ...request.Option) error
+	GetObjectTaggingWithContext(ctx context.Context, input *s3.GetObjectTaggingInput, opts ...request.Option) (*s3.GetObjectTaggingOutput, error)
+}
+
 type S3Bucket struct {
-	s3Client             *s3.S3
+	s3Client             s3ObjectAPI
 	bucketName           string
 	serverSideEncryption string
 }
@@ -92,17 +99,18 @@ func (l *S3Bucket) ListObjects(ctx context.Context, prefix string) ([]Object, er
 }
 
 func (l *S3Bucket) fetchObjectTags(ctx context.Context, key string) (map[string]string, error) {
-	return fetchObjectTags(ctx, l.s3Client, l.bucketName, key)
+	b := backoff.NewExponentialBackOff()
+	b.MaxElapsedTime = 15 * time.Second
+	return fetchObjectTagsWithBackoff(ctx, l.s3Client, l.bucketName, key, b)
 }
 
-func fetchObjectTags(ctx context.Context, client *s3.S3, bucketName string, key string) (map[string]string, error) {
+// fetchObjectTagsWithBackoff fetches S3 object tags, retrying according to the provided backoff strategy.
+// Separating the backoff allows tests to inject a fast/no-wait strategy.
+func fetchObjectTagsWithBackoff(ctx context.Context, client s3ObjectAPI, bucketName string, key string, b backoff.BackOff) (map[string]string, error) {
 	tagInput := s3.GetObjectTaggingInput{
 		Bucket: &bucketName,
 		Key:    &key,
 	}
-
-	retryBackoff := backoff.NewExponentialBackOff()
-	retryBackoff.MaxElapsedTime = 15 * time.Second
 
 	var tags *s3.GetObjectTaggingOutput
 	var err error
@@ -110,7 +118,7 @@ func fetchObjectTags(ctx context.Context, client *s3.S3, bucketName string, key 
 	err = backoff.Retry(func() error {
 		tags, err = client.GetObjectTaggingWithContext(ctx, &tagInput)
 		return err
-	}, retryBackoff)
+	}, b)
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching tags for %v: %w", key, err)

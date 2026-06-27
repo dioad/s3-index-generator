@@ -41,9 +41,17 @@ func TestSemVerParse(t *testing.T) {
 			t.Errorf("expected %v, got %v", input.expected, v)
 		}
 	}
+}
 
-	//_, err := semver.NewVersion("1.2.3")
-	//if err != nil {
-	//	t.Errorf("failed to parse version: %v", err)
-	//}
+func TestSemVerParseEmpty(t *testing.T) {
+	_, err := ParseSemVer("")
+	if err == nil {
+		t.Error("expected error for empty version string, got nil")
+	}
+}
+
+func TestIsVersionLabelEmpty(t *testing.T) {
+	if IsVersionLabel("") {
+		t.Error("expected false for empty label")
+	}
 }

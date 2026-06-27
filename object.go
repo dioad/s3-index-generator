@@ -70,9 +70,6 @@ func NewObjectWithTags(obj *s3.Object, tags map[string]string) Object {
 	return o
 }
 
-type ObjectTagSetter interface {
-}
-
 type ObjectListerFunc func(ctx context.Context, prefix string) ([]Object, error)
 
 type ObjectLister interface {

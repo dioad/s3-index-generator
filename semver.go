@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/coreos/go-semver/semver"
@@ -12,6 +13,9 @@ func IsVersionLabel(label string) bool {
 }
 
 func ParseSemVer(version string) (*semver.Version, error) {
+	if len(version) == 0 {
+		return nil, fmt.Errorf("empty version string")
+	}
 	// strip leading 'v' if present
 	if version[0] == 'v' || version[0] == 'V' {
 		version = version[1:]

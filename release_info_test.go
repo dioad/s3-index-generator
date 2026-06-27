@@ -89,7 +89,6 @@ func TestNewVersionIndexForObjectTree(t *testing.T) {
 	}
 	tree.AddObject(simpleObject("testProduct_linux_amd64.zip"))
 
-	//child.AddChild("1.0.0")
 	cfg := IndexConfig{}
 	index := NewVersionIndexForObjectTree(cfg, tree)
 	if index == nil {

@@ -124,7 +124,6 @@ func (t *ObjectTree) Walk(f ObjectTreeWalker, recursive bool, depthFirst bool) e
 		errGroup.SetLimit(10)
 
 		for _, v := range t.Children {
-			v := v
 			errGroup.Go(func() error {
 				return v.Walk(f, recursive, depthFirst)
 			})
@@ -159,7 +158,6 @@ func (t *ObjectTree) WalkObjects(f ObjectWalker, recursive bool, depthFirst bool
 		errGroup.SetLimit(10)
 
 		for _, v := range t.Children {
-			v := v
 			errGroup.Go(func() error {
 				return v.WalkObjects(f, recursive, depthFirst)
 			})
@@ -183,7 +181,6 @@ func (t *ObjectTree) WalkObjects(f ObjectWalker, recursive bool, depthFirst bool
 
 func (t *ObjectTree) walkLocalObjects(f ObjectWalker) error {
 	for _, v := range t.Objects {
-		v := v
 		err := f(&v)
 		if err != nil {
 			return err

@@ -28,6 +28,20 @@ var DioadIndexConfig = IndexConfig{
 	},
 }
 
+// buildIndexConfig returns an IndexConfig derived from the provided release key patterns.
+// If patterns is empty, the default extractor is used. Each pattern is a named-capture-group
+// regex; the first one to match an object key wins.
+func buildIndexConfig(patterns []string) IndexConfig {
+	if len(patterns) == 0 {
+		return DioadIndexConfig
+	}
+	extractions := make(ReleaseDetailKeyExtractions, len(patterns))
+	for i, p := range patterns {
+		extractions[i] = ReleaseDetailsKeyExtractor(p)
+	}
+	return IndexConfig{KeyExtractions: extractions}
+}
+
 type ObjectTreeConfig struct {
 	PrefixToStrip string
 	Exclusions    Exclusions
@@ -115,7 +129,6 @@ type IndexRenderers []IndexRenderer
 func (r IndexRenderers) Render(destFS afero.Fs, objectTree *ObjectTree) error {
 	errGroup := errgroup.Group{}
 	for _, renderer := range r {
-		renderer := renderer
 		errGroup.Go(func() error {
 			return RenderObjectTreeIndexFile(objectTree, renderer, destFS)
 		})

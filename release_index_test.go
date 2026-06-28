@@ -1,6 +1,7 @@
 package main
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -109,8 +110,13 @@ func TestExtractMetadataFromKey(t *testing.T) {
 	}
 }
 
-func extractMetadataFromKeyHelper(t *testing.T, re string, key string, expected map[string]string) {
+func extractMetadataFromKeyHelper(t *testing.T, pattern string, key string, expected map[string]string) {
 	t.Helper()
+
+	re, err := regexp.Compile(pattern)
+	if err != nil {
+		t.Fatalf("regexp.Compile(%q) failed: %v", pattern, err)
+	}
 
 	results, err := extractMetadataFromKey(re, key)
 	if err != nil {

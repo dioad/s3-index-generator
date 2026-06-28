@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
-	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/spf13/afero"
 )
 
@@ -27,19 +26,6 @@ func TestLoadTemplates(t *testing.T) {
 	if tmpl == nil {
 		t.Errorf("loadTemplates() = nil, want non-nil")
 	}
-}
-
-type testBucket struct{}
-
-func (b *testBucket) ListObjects(_ context.Context, key string) ([]Object, error) {
-	return []Object{
-		&object{
-			obj: &s3.Object{Key: stringToPointer("testKey")},
-			tags: map[string]string{
-				"testTagKey": "testTagValue",
-			},
-		},
-	}, nil
 }
 
 func TestCopyStaticFiles(t *testing.T) {
@@ -73,7 +59,7 @@ func TestRenderObjectTreeIndexes_JSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected /connect/1.0.0/index.json to exist: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	data, err := io.ReadAll(f)
 	if err != nil {
@@ -110,7 +96,7 @@ func TestRenderObjectTreeIndexes_HTML(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected /index.html to exist: %v", err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	data, err := io.ReadAll(f)
 	if err != nil {

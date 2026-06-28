@@ -10,35 +10,52 @@ import (
 )
 
 var (
-	DefaultReleaseInfoKeyExtractor = ReleaseDetailsKeyExtractor(`(?P<Prefix>.*?/)?(?P<Product>[^/]+)/(?P<Version>[^/]+)/(?P<PackageName>[^_]+)(_|_(?P<Extra>.*?)_)(?P<OS>[^_\d]+)_(?P<Arch>[^\.]+)\.(?P<ArchiveType>[^/]+)$`)
+	DefaultReleaseInfoKeyExtractor = MustReleaseDetailsKeyExtractor(`(?P<Prefix>.*?/)?(?P<Product>[^/]+)/(?P<Version>[^/]+)/(?P<PackageName>[^_]+)(_|_(?P<Extra>.*?)_)(?P<OS>[^_\d]+)_(?P<Arch>[^\.]+)\.(?P<ArchiveType>[^/]+)$`)
 )
 
-type ReleaseDetailsKeyExtractor string
+// ReleaseDetailsKeyExtractor holds a pre-compiled regex used to extract release
+// metadata from S3 object keys. Compiling once at construction avoids per-object
+// regexp.Compile calls which dominated memory allocation under concurrent rendering.
+type ReleaseDetailsKeyExtractor struct {
+	re *regexp.Regexp
+}
 
-func extractMetadataFromKey(regExp, key string) (map[string]string, error) {
-	re, err := regexp.Compile(regExp)
+// MustReleaseDetailsKeyExtractor compiles pattern and panics if it is invalid.
+// Intended for package-level variables with known-good patterns.
+func MustReleaseDetailsKeyExtractor(pattern string) ReleaseDetailsKeyExtractor {
+	return ReleaseDetailsKeyExtractor{re: regexp.MustCompile(pattern)}
+}
+
+// NewReleaseDetailsKeyExtractor compiles pattern and returns an error if invalid.
+// Use this for patterns supplied at runtime (e.g. RELEASE_KEY_PATTERNS env var).
+func NewReleaseDetailsKeyExtractor(pattern string) (ReleaseDetailsKeyExtractor, error) {
+	re, err := regexp.Compile(pattern)
 	if err != nil {
-		return nil, err
+		return ReleaseDetailsKeyExtractor{}, err
 	}
+	return ReleaseDetailsKeyExtractor{re: re}, nil
+}
 
-	if !re.Match([]byte(key)) {
+func extractMetadataFromKey(re *regexp.Regexp, key string) (map[string]string, error) {
+	if !re.MatchString(key) {
 		return nil, fmt.Errorf("failed to match")
 	}
 
 	match := re.FindStringSubmatch(key)
-	results := map[string]string{}
-	for i, name := range match {
-		if re.SubexpNames()[i] == "" {
+	names := re.SubexpNames()
+	results := make(map[string]string, len(names))
+	for i, name := range names {
+		if name == "" {
 			continue
 		}
-		results[re.SubexpNames()[i]] = name
+		results[name] = match[i]
 	}
 
 	return results, nil
 }
 
 func (k ReleaseDetailsKeyExtractor) ExtractReleaseDetails(key string) (map[string]string, error) {
-	results, err := extractMetadataFromKey(string(k), key)
+	results, err := extractMetadataFromKey(k.re, key)
 	if err != nil {
 		return nil, err
 	}

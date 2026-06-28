@@ -2,9 +2,6 @@ package main
 
 import (
 	"testing"
-
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 func TestIsVersionTreeWithBuildPath(t *testing.T) {
@@ -69,7 +66,7 @@ func TestNewArchiveIndexForObjectTree(t *testing.T) {
 }
 
 func simpleObject(key string) Object {
-	return &object{obj: &s3.Object{Key: aws.String(key)}}
+	return &object{key: key}
 }
 
 func TestNewProductIndexForObjectTree(t *testing.T) {

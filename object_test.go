@@ -4,7 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 )
 
 func TestNewObject(t *testing.T) {
@@ -26,10 +27,11 @@ func TestNewObjectWithTags(t *testing.T) {
 }
 
 func TestObjectMethods(t *testing.T) {
-	obj := &s3.Object{
-		Key:          stringToPointer("testKey"),
-		LastModified: timeToPointer(time.Now()),
-		Size:         int64ToPointer(100),
+	now := time.Now()
+	obj := s3types.Object{
+		Key:          aws.String("testKey"),
+		LastModified: &now,
+		Size:         aws.Int64(100),
 	}
 	o := NewObject(obj)
 	if o.Key() != "testKey" {
@@ -61,17 +63,4 @@ func TestIndexEntry(t *testing.T) {
 	if entry.Name != "TestProduct" || entry.Version != "1.0.0" {
 		t.Errorf("IndexEntry() failed, entry fields not correctly set")
 	}
-}
-
-// Helper functions to create pointers to string, time.Time, and int64
-func stringToPointer(s string) *string {
-	return &s
-}
-
-func timeToPointer(t time.Time) *time.Time {
-	return &t
-}
-
-func int64ToPointer(i int64) *int64 {
-	return &i
 }

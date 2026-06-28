@@ -33,9 +33,9 @@ func TestParseConfigFromEnvironment_Defaults(t *testing.T) {
 	// Unset vars so we test defaults, not inherit from the environment.
 	for _, key := range []string{"BUCKET", "INDEX_TYPE", "INDEX_FORMATS", "INDEX_TEMPLATE", "TEMPLATE_BUCKET_URL", "STATIC_BUCKET_URL", "SSE", "OBJECT_PREFIX", "DESTINATION_BUCKET_PREFIX"} {
 		if orig, exists := os.LookupEnv(key); exists {
-			os.Unsetenv(key)
+			_ = os.Unsetenv(key)
 			k := key
-			t.Cleanup(func() { os.Setenv(k, orig) })
+			t.Cleanup(func() { _ = os.Setenv(k, orig) })
 		}
 	}
 
@@ -128,7 +128,10 @@ func TestParseConfigFromEnvironment_ReleaseKeyPatterns(t *testing.T) {
 }
 
 func TestBuildIndexConfig_Default(t *testing.T) {
-	cfg := buildIndexConfig(nil)
+	cfg, err := buildIndexConfig(nil)
+	if err != nil {
+		t.Fatalf("buildIndexConfig(nil) failed: %v", err)
+	}
 	if len(cfg.KeyExtractions) != 1 {
 		t.Errorf("expected 1 default extraction, got %d", len(cfg.KeyExtractions))
 	}
@@ -138,7 +141,10 @@ func TestBuildIndexConfig_CustomPatterns(t *testing.T) {
 	patterns := []string{
 		`(?P<Product>[^/]+)/(?P<Version>[^/]+)/(?P<OS>[^_]+)_(?P<Arch>[^.]+)\.zip`,
 	}
-	cfg := buildIndexConfig(patterns)
+	cfg, err := buildIndexConfig(patterns)
+	if err != nil {
+		t.Fatalf("buildIndexConfig() failed: %v", err)
+	}
 	if len(cfg.KeyExtractions) != 1 {
 		t.Errorf("expected 1 custom extraction, got %d", len(cfg.KeyExtractions))
 	}

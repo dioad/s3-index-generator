@@ -1,28 +1,18 @@
 package main
 
 import (
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	"github.com/aws/aws-sdk-go/service/s3"
-	"github.com/aws/aws-xray-sdk-go/xray"
+	"context"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/aws-xray-sdk-go/instrumentation/awsv2"
 )
 
-func s3Session() *session.Session {
-	sess := session.Must(
-		session.NewSessionWithOptions(
-			session.Options{
-				SharedConfigState: session.SharedConfigEnable,
-			},
-		),
-	)
-	return sess
-}
-
-func s3Client(sess *session.Session) *s3.S3 {
-	client := s3.New(sess, &aws.Config{
-		DisableRestProtocolURICleaning: aws.Bool(true),
-	})
-	xray.AWS(client.Client)
-
-	return client
+func newS3Client(ctx context.Context) (*s3.Client, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	awsv2.AWSV2Instrumentor(&cfg.APIOptions)
+	return s3.NewFromConfig(cfg), nil
 }

@@ -5,23 +5,23 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/aws/aws-sdk-go/service/s3"
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/cenkalti/backoff/v3"
 )
 
 // mockS3Client implements s3ObjectAPI for testing.
 type mockS3Client struct {
-	listObjectsPages func(ctx context.Context, input *s3.ListObjectsInput, fn func(*s3.ListObjectsOutput, bool) bool) error
+	listObjectsV2    func(ctx context.Context, input *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error)
 	getObjectTagging func(ctx context.Context, input *s3.GetObjectTaggingInput) (*s3.GetObjectTaggingOutput, error)
 }
 
-func (m *mockS3Client) ListObjectsPagesWithContext(ctx context.Context, input *s3.ListObjectsInput, fn func(*s3.ListObjectsOutput, bool) bool, opts ...request.Option) error {
-	return m.listObjectsPages(ctx, input, fn)
+func (m *mockS3Client) ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	return m.listObjectsV2(ctx, input)
 }
 
-func (m *mockS3Client) GetObjectTaggingWithContext(ctx context.Context, input *s3.GetObjectTaggingInput, opts ...request.Option) (*s3.GetObjectTaggingOutput, error) {
+func (m *mockS3Client) GetObjectTagging(ctx context.Context, input *s3.GetObjectTaggingInput, _ ...func(*s3.Options)) (*s3.GetObjectTaggingOutput, error) {
 	return m.getObjectTagging(ctx, input)
 }
 
@@ -31,14 +31,14 @@ func newBucketWithMock(mock s3ObjectAPI) *S3Bucket {
 
 func TestListObjects_SinglePage(t *testing.T) {
 	mock := &mockS3Client{
-		listObjectsPages: func(_ context.Context, _ *s3.ListObjectsInput, fn func(*s3.ListObjectsOutput, bool) bool) error {
-			fn(&s3.ListObjectsOutput{
-				Contents: []*s3.Object{
+		listObjectsV2: func(_ context.Context, _ *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error) {
+			return &s3.ListObjectsV2Output{
+				Contents: []s3types.Object{
 					{Key: aws.String("a/b.zip")},
 					{Key: aws.String("a/c.zip")},
 				},
-			}, true)
-			return nil
+				IsTruncated: aws.Bool(false),
+			}, nil
 		},
 	}
 	bucket := newBucketWithMock(mock)
@@ -53,16 +53,25 @@ func TestListObjects_SinglePage(t *testing.T) {
 }
 
 func TestListObjects_MultiplePages(t *testing.T) {
-	page1 := []*s3.Object{{Key: aws.String("page1/obj1")}, {Key: aws.String("page1/obj2")}}
-	page2 := []*s3.Object{{Key: aws.String("page2/obj1")}}
+	page1 := []s3types.Object{{Key: aws.String("page1/obj1")}, {Key: aws.String("page1/obj2")}}
+	page2 := []s3types.Object{{Key: aws.String("page2/obj1")}}
 
 	calls := 0
 	mock := &mockS3Client{
-		listObjectsPages: func(_ context.Context, _ *s3.ListObjectsInput, fn func(*s3.ListObjectsOutput, bool) bool) error {
+		listObjectsV2: func(_ context.Context, input *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error) {
 			calls++
-			fn(&s3.ListObjectsOutput{Contents: page1}, false)
-			fn(&s3.ListObjectsOutput{Contents: page2}, true)
-			return nil
+			if input.ContinuationToken == nil {
+				token := "token1"
+				return &s3.ListObjectsV2Output{
+					Contents:              page1,
+					IsTruncated:           aws.Bool(true),
+					NextContinuationToken: &token,
+				}, nil
+			}
+			return &s3.ListObjectsV2Output{
+				Contents:    page2,
+				IsTruncated: aws.Bool(false),
+			}, nil
 		},
 	}
 	bucket := newBucketWithMock(mock)
@@ -74,12 +83,15 @@ func TestListObjects_MultiplePages(t *testing.T) {
 	if len(objects) != 3 {
 		t.Errorf("expected 3 objects across 2 pages, got %d", len(objects))
 	}
+	if calls != 2 {
+		t.Errorf("expected 2 API calls for 2 pages, got %d", calls)
+	}
 }
 
 func TestListObjects_Error(t *testing.T) {
 	mock := &mockS3Client{
-		listObjectsPages: func(_ context.Context, _ *s3.ListObjectsInput, _ func(*s3.ListObjectsOutput, bool) bool) error {
-			return fmt.Errorf("s3 unavailable")
+		listObjectsV2: func(_ context.Context, _ *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error) {
+			return nil, fmt.Errorf("s3 unavailable")
 		},
 	}
 	bucket := newBucketWithMock(mock)
@@ -94,7 +106,7 @@ func TestFetchObjectTagsWithBackoff_Success(t *testing.T) {
 	mock := &mockS3Client{
 		getObjectTagging: func(_ context.Context, _ *s3.GetObjectTaggingInput) (*s3.GetObjectTaggingOutput, error) {
 			return &s3.GetObjectTaggingOutput{
-				TagSet: []*s3.Tag{
+				TagSet: []s3types.Tag{
 					{Key: aws.String("env"), Value: aws.String("prod")},
 					{Key: aws.String("team"), Value: aws.String("platform")},
 				},
@@ -134,7 +146,7 @@ func TestFetchObjectTagsWithBackoff_RetryThenSuccess(t *testing.T) {
 				return nil, fmt.Errorf("transient error")
 			}
 			return &s3.GetObjectTaggingOutput{
-				TagSet: []*s3.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
+				TagSet: []s3types.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
 			}, nil
 		},
 	}
@@ -156,7 +168,7 @@ func TestUpdateObjectsWithTags(t *testing.T) {
 	mock := &mockS3Client{
 		getObjectTagging: func(_ context.Context, input *s3.GetObjectTaggingInput) (*s3.GetObjectTaggingOutput, error) {
 			return &s3.GetObjectTaggingOutput{
-				TagSet: []*s3.Tag{{Key: aws.String("tagged"), Value: aws.String(*input.Key)}},
+				TagSet: []s3types.Tag{{Key: aws.String("tagged"), Value: input.Key}},
 			}, nil
 		},
 	}
@@ -180,15 +192,15 @@ func TestUpdateObjectsWithTags(t *testing.T) {
 
 func TestListObjectsWithTags(t *testing.T) {
 	mock := &mockS3Client{
-		listObjectsPages: func(_ context.Context, _ *s3.ListObjectsInput, fn func(*s3.ListObjectsOutput, bool) bool) error {
-			fn(&s3.ListObjectsOutput{
-				Contents: []*s3.Object{{Key: aws.String("a/b.zip")}},
-			}, true)
-			return nil
+		listObjectsV2: func(_ context.Context, _ *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error) {
+			return &s3.ListObjectsV2Output{
+				Contents:    []s3types.Object{{Key: aws.String("a/b.zip")}},
+				IsTruncated: aws.Bool(false),
+			}, nil
 		},
 		getObjectTagging: func(_ context.Context, _ *s3.GetObjectTaggingInput) (*s3.GetObjectTaggingOutput, error) {
 			return &s3.GetObjectTaggingOutput{
-				TagSet: []*s3.Tag{{Key: aws.String("version"), Value: aws.String("1.0")}},
+				TagSet: []s3types.Tag{{Key: aws.String("version"), Value: aws.String("1.0")}},
 			}, nil
 		},
 	}

@@ -6,13 +6,15 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"runtime"
+	"runtime/pprof"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-lambda-go/events"
 	"github.com/aws/aws-lambda-go/lambda"
-	"github.com/aws/aws-sdk-go/aws/session"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/spf13/afero"
 )
 
@@ -121,14 +123,13 @@ func indexFormats(indexFormat string) []IndexFormat {
 	return formats
 }
 
-func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, event events.S3Event) error {
+func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, event events.S3Event) error {
 	return func(ctx context.Context, event events.S3Event) error {
 		if len(event.Records) == 0 {
 			return nil
 		}
 
 		s3Entity := event.Records[0].S3
-		// lc, _ := lambdacontext.FromContext(ctx)
 		fmt.Printf("records length: %d", len(event.Records))
 		fmt.Printf(" record[0]: bucket: %v, key: %v, event: %v",
 			s3Entity.Bucket.Name,
@@ -141,35 +142,35 @@ func HandleRequest(sess *session.Session, cfg Config) func(ctx context.Context, 
 			return nil
 		}
 
-		outputFS := NewS3OutputFS(sess, cfg.Bucket, cfg.DestinationBucketPrefix, &cfg.ServerSideEncryption)
+		outputFS := NewS3OutputFS(client, cfg.Bucket, cfg.DestinationBucketPrefix, &cfg.ServerSideEncryption)
 
-		return indexS3Bucket(ctx, sess, cfg, outputFS)
+		return indexS3Bucket(ctx, client, cfg, outputFS)
 	}
 }
 
 // Pipeline holds the dependencies for a single index generation run.
 type Pipeline struct {
-	sess      *session.Session
+	client    *s3.Client
 	cfg       Config
 	outputFS  afero.Fs
 	renderers IndexRenderers
 }
 
 // newPipeline constructs a Pipeline, resolving templates and static assets.
-func newPipeline(ctx context.Context, sess *session.Session, cfg Config, outputFS afero.Fs) (*Pipeline, error) {
-	renderers, err := indexRenderers(sess, cfg)
+func newPipeline(ctx context.Context, client *s3.Client, cfg Config, outputFS afero.Fs) (*Pipeline, error) {
+	renderers, err := indexRenderers(client, cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	if slices.Contains(cfg.IndexFormats, HTMLIndex) {
-		if err := CopyStaticFiles(sess, outputFS, cfg.StaticBucketURL); err != nil {
+		if err := CopyStaticFiles(client, outputFS, cfg.StaticBucketURL); err != nil {
 			return nil, fmt.Errorf("failed to copy static files: %w", err)
 		}
 	}
 
 	return &Pipeline{
-		sess:      sess,
+		client:    client,
 		cfg:       cfg,
 		outputFS:  outputFS,
 		renderers: renderers,
@@ -178,7 +179,7 @@ func newPipeline(ctx context.Context, sess *session.Session, cfg Config, outputF
 
 // buildObjectTree lists all bucket objects and constructs the tree representation.
 func (p *Pipeline) buildObjectTree(ctx context.Context) (*ObjectTree, error) {
-	s3Bucket := NewS3Bucket(p.sess, p.cfg.Bucket, p.cfg.ServerSideEncryption)
+	s3Bucket := NewS3Bucket(p.client, p.cfg.Bucket, p.cfg.ServerSideEncryption)
 
 	objectTreeCfg := ObjectTreeConfig{
 		PrefixToStrip: p.cfg.ObjectPrefix,
@@ -218,8 +219,8 @@ func (p *Pipeline) renderIndexes(objectTree *ObjectTree) error {
 	return nil
 }
 
-func indexS3Bucket(ctx context.Context, sess *session.Session, cfg Config, outputFS afero.Fs) error {
-	pipeline, err := newPipeline(ctx, sess, cfg, outputFS)
+func indexS3Bucket(ctx context.Context, client *s3.Client, cfg Config, outputFS afero.Fs) error {
+	pipeline, err := newPipeline(ctx, client, cfg, outputFS)
 	if err != nil {
 		return err
 	}
@@ -232,17 +233,20 @@ func indexS3Bucket(ctx context.Context, sess *session.Session, cfg Config, outpu
 	return pipeline.renderIndexes(objectTree)
 }
 
-func indexRenderers(sess *session.Session, cfg Config) (IndexRenderers, error) {
+func indexRenderers(client *s3.Client, cfg Config) (IndexRenderers, error) {
 	renderers := make(IndexRenderers, 0)
 
-	indexCfg := buildIndexConfig(cfg.ReleaseKeyPatterns)
+	indexCfg, err := buildIndexConfig(cfg.ReleaseKeyPatterns)
+	if err != nil {
+		return nil, fmt.Errorf("invalid release key patterns: %w", err)
+	}
 
 	for _, format := range cfg.IndexFormats {
 		switch format {
 		case JSONIndex:
 			renderers = append(renderers, JSONIndexRenderer(indexCfg))
 		case HTMLIndex:
-			tmpl, err := LoadTemplates(sess, cfg.TemplateBucketURL)
+			tmpl, err := LoadTemplates(client, cfg.TemplateBucketURL)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load templates: %w", err)
 			}
@@ -274,17 +278,12 @@ func localOutputFS(args []string) (afero.Fs, error) {
 }
 
 func main() {
-	//
-	// cpuProf, err := os.Create("cpu.pprof")
-	// heapProf, err := os.Create("heap.pprof")
-	// if err != nil {
-	//	log.Fatal(err)
-	// }
-	// pprof.StartCPUProfile(cpuProf)
-	//
-	// defer pprof.StopCPUProfile()
-	//
-	sess := s3Session()
+	ctx := context.Background()
+
+	client, err := newS3Client(ctx)
+	if err != nil {
+		log.Fatalf("failed to create S3 client: %v", err)
+	}
 
 	cfg, err := parseConfigFromEnvironment()
 	if err != nil {
@@ -295,7 +294,7 @@ func main() {
 		if cfg.Bucket == "" {
 			log.Fatalf("BUCKET environment variable is required in Lambda mode")
 		}
-		lambda.Start(HandleRequest(sess, cfg))
+		lambda.Start(HandleRequest(client, cfg))
 	} else {
 		if len(os.Args) >= 2 {
 			cfg.Bucket, cfg.DestinationBucketPrefix, _ = strings.Cut(os.Args[1], "/")
@@ -306,13 +305,33 @@ func main() {
 			}
 
 			if outputFS == nil {
-				outputFS = NewS3OutputFS(sess, cfg.Bucket, "", &cfg.ServerSideEncryption)
+				outputFS = NewS3OutputFS(client, cfg.Bucket, "", &cfg.ServerSideEncryption)
 			}
 
-			err = indexS3Bucket(context.Background(), sess, cfg, outputFS)
-			//	pprof.WriteHeapProfile(heapProf)
+			cpuProf, err := os.Create("cpu.pprof")
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer func() { _ = cpuProf.Close() }()
+			if err := pprof.StartCPUProfile(cpuProf); err != nil {
+				log.Fatal(err)
+			}
+			defer pprof.StopCPUProfile()
+
+			heapProf, err := os.Create("heap.pprof")
+			if err != nil {
+				log.Fatal(err)
+			}
+			defer func() { _ = heapProf.Close() }()
+
+			err = indexS3Bucket(ctx, client, cfg, outputFS)
 			if err != nil {
 				log.Fatalf("failed to generate index files: %v", err)
+			}
+
+			runtime.GC()
+			if err := pprof.WriteHeapProfile(heapProf); err != nil {
+				log.Printf("failed to write heap profile: %v", err)
 			}
 		}
 	}

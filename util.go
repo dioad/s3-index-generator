@@ -8,10 +8,11 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws/session"
-	aferos3 "github.com/fclairamb/afero-s3"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
+	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/spf13/afero"
 )
 
@@ -27,21 +28,16 @@ func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func IOFSFromS3URL(sess *session.Session, url *url.URL) (fs.FS, error) {
+func IOFSFromS3URL(client *s3.Client, url *url.URL) (fs.FS, error) {
 	if url.Scheme != "s3" {
 		return nil, errors.New("requires s3 URL")
 	}
-
-	aferoFS := aferos3.NewFs(url.Host, sess)
-	subPathFS := afero.NewBasePathFs(aferoFS, url.Path)
-	ioFS := afero.NewIOFS(subPathFS)
-
-	return ioFS, nil
+	return newS3ReadFS(client, url.Host, strings.TrimPrefix(url.Path, "/")), nil
 }
 
-func FSFromBucketURL(sess *session.Session, bucketURL *url.URL) (fs.FS, error) {
+func FSFromBucketURL(client *s3.Client, bucketURL *url.URL) (fs.FS, error) {
 	if bucketURL != nil {
-		s3Fs, err := IOFSFromS3URL(sess, bucketURL)
+		s3Fs, err := IOFSFromS3URL(client, bucketURL)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load FS from %v: %v", bucketURL.Redacted(), err)
 		}
@@ -50,53 +46,40 @@ func FSFromBucketURL(sess *session.Session, bucketURL *url.URL) (fs.FS, error) {
 	return nil, nil
 }
 
-func FSFromS3URLOrDefault(sess *session.Session, s3URL *url.URL, defaultFS fs.FS) (fs.FS, error) {
-	var f fs.FS
-	var err error
-	f = defaultFS
+func FSFromS3URLOrDefault(client *s3.Client, s3URL *url.URL, defaultFS fs.FS) (fs.FS, error) {
 	if s3URL != nil {
-		f, err = FSFromBucketURL(sess, s3URL)
-		if err != nil {
-			return nil, err
-
-		}
+		return FSFromBucketURL(client, s3URL)
 	}
-	return f, nil
+	return defaultFS, nil
 }
 
 func CopyFile(destFS afero.Fs, srcFS fs.FS) fs.WalkDirFunc {
-	return func(path string, d fs.DirEntry, err error) error {
+	return func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
 		if d.IsDir() {
-			mkdirErr := destFS.MkdirAll(d.Name(), 0755)
-			if mkdirErr != nil {
-				return fmt.Errorf("failed to mkdir: %v", mkdirErr)
-			}
-			return nil
+			return destFS.MkdirAll(d.Name(), 0755)
 		}
 
-		if !d.IsDir() {
-			srcFile, err := srcFS.Open(path)
-			if err != nil {
-				return fmt.Errorf("failed to open source path: %v", err)
-			}
-			destFile, err := destFS.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-			if err != nil {
-				return fmt.Errorf("failed to open destination path: %v", err)
-			}
-
-			_, err = io.Copy(destFile, srcFile)
-			if err != nil {
-				return fmt.Errorf("failed to copy: %v", err)
-			}
-
-			defer destFile.Close()
-			defer srcFile.Close()
+		srcFile, err := srcFS.Open(p)
+		if err != nil {
+			return fmt.Errorf("failed to open source path: %v", err)
 		}
-		return nil
+		defer func() { _ = srcFile.Close() }()
+
+		destFile, err := destFS.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+		if err != nil {
+			return fmt.Errorf("failed to open destination path: %v", err)
+		}
+
+		if _, err = io.Copy(destFile, srcFile); err != nil {
+			_ = destFile.Close()
+			return fmt.Errorf("failed to copy: %v", err)
+		}
+
+		return destFile.Close()
 	}
 }
 
@@ -114,36 +97,40 @@ func NewLocalOutputFS(localOutputDirectory string) (afero.Fs, error) {
 	return afero.NewBasePathFs(o, localOutputDirectory), nil
 }
 
-func NewS3OutputFS(sess *session.Session, bucketName string, prefix string, serverSideEncryption *string) afero.Fs {
+func NewS3OutputFS(client *s3.Client, bucketName string, prefix string, serverSideEncryption *string) afero.Fs {
 	bucketKeyEnabled := true
-	if serverSideEncryption != nil && *serverSideEncryption == "" {
-		serverSideEncryption = nil
-		bucketKeyEnabled = false
+	var sse s3types.ServerSideEncryption
+	if serverSideEncryption != nil {
+		if *serverSideEncryption == "" {
+			bucketKeyEnabled = false
+		} else {
+			sse = s3types.ServerSideEncryption(*serverSideEncryption)
+		}
 	}
 
 	cacheControl := fmt.Sprintf("max-age=%d", (time.Minute/time.Second)*5)
 
-	fileProps := &aferos3.UploadedFileProperties{
+	props := &S3FileProps{
 		CacheControl:         &cacheControl,
-		ServerSideEncryption: serverSideEncryption,
+		ServerSideEncryption: sse,
 		BucketKeyEnabled:     &bucketKeyEnabled,
 	}
 
-	sp := aferos3.NewFs(bucketName, sess)
-	sp.FileProps = fileProps
-
-	var s afero.Fs
-	if prefix != "" {
-		s = afero.NewBasePathFs(sp, prefix)
-	} else {
-		s = sp
+	var outputFS afero.Fs = &s3WriteFS{
+		client: client,
+		bucket: bucketName,
+		props:  props,
 	}
 
-	return s
+	if prefix != "" {
+		outputFS = afero.NewBasePathFs(outputFS, prefix)
+	}
+
+	return outputFS
 }
 
-func LoadTemplates(sess *session.Session, templateBucketURL *url.URL) (*template.Template, error) {
-	tmplFS, err := FSFromS3URLOrDefault(sess, templateBucketURL, defaultTemplateFS)
+func LoadTemplates(client *s3.Client, templateBucketURL *url.URL) (*template.Template, error) {
+	tmplFS, err := FSFromS3URLOrDefault(client, templateBucketURL, defaultTemplateFS)
 	if err != nil {
 		return nil, err
 	}
@@ -156,13 +143,12 @@ func LoadTemplates(sess *session.Session, templateBucketURL *url.URL) (*template
 	return tmpl, err
 }
 
-func CopyStaticFiles(sess *session.Session, destFS afero.Fs, staticBucketURL *url.URL) error {
-	staticFS, err := FSFromS3URLOrDefault(sess, staticBucketURL, defaultStaticFS)
+func CopyStaticFiles(client *s3.Client, destFS afero.Fs, staticBucketURL *url.URL) error {
+	staticFS, err := FSFromS3URLOrDefault(client, staticBucketURL, defaultStaticFS)
 	if err != nil {
 		return fmt.Errorf("failed to load static assets from bucket %v: %w", staticBucketURL, err)
 	}
 
-	// copy static
 	err = CopyFilesFromSubPath(destFS, staticFS, "static")
 	if err != nil {
 		return fmt.Errorf("failed to copy static files %w", err)

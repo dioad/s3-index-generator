@@ -196,8 +196,6 @@ func NewObjectTree(cfg ObjectTreeConfig, fullPath string) *ObjectTree {
 		Config:   cfg,
 		FullPath: fullPath,
 		DirName:  dirName,
-		Objects:  make([]Object, 0),
-		Children: make(map[string]*ObjectTree),
 	}
 }
 

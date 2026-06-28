@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
-
-	"github.com/aws/aws-sdk-go/service/s3"
 )
 
 func TestObjectTree(t *testing.T) {
@@ -79,7 +77,7 @@ func TestExclusions(t *testing.T) {
 
 func TestAddObject(t *testing.T) {
 	tree := &ObjectTree{}
-	obj := &object{obj: &s3.Object{Key: stringToPointer("testKey")}}
+	obj := &object{key: "testKey"}
 	tree.AddObject(obj)
 	if len(tree.Objects) != 1 {
 		t.Errorf("AddObject() failed, object not added")

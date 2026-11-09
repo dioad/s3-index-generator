@@ -221,3 +221,38 @@ func extractReleaseInfoHelper(t *testing.T, key string, expected map[string]stri
 	}
 
 }
+
+func TestAddVersion_LatestReleasesPerMajor(t *testing.T) {
+	product := NewProductIndex("TestProduct")
+	for _, v := range []string{"1.2.0", "2.0.0", "1.10.0", "1.9.3", "2.1.0-rc1"} {
+		product.AddVersion(&VersionIndex{Version: v})
+	}
+
+	want := map[string]string{"1": "1.10.0", "2": "2.1.0-rc1"}
+	if len(product.LatestReleases) != len(want) {
+		t.Fatalf("LatestReleases has %d entries, want %d", len(product.LatestReleases), len(want))
+	}
+	for major, version := range want {
+		got := product.LatestReleases[major]
+		if got == nil || got.Version != version {
+			t.Errorf("LatestReleases[%q] = %v, want %s", major, got, version)
+		}
+	}
+
+	if product.LatestVersion == nil || product.LatestVersion.Version != "2.1.0-rc1" {
+		t.Errorf("LatestVersion = %v, want 2.1.0-rc1", product.LatestVersion)
+	}
+}
+
+func TestNewIndexEntry_Size(t *testing.T) {
+	cfg := IndexConfig{KeyExtractions: ReleaseDetailKeyExtractions{DefaultReleaseInfoKeyExtractor}}
+	obj := &object{key: "TestProduct/1.0.0/TestProduct_linux_amd64.zip", size: 4096}
+
+	entry, err := NewIndexEntry(cfg, obj)
+	if err != nil {
+		t.Fatalf("NewIndexEntry() failed, %v", err)
+	}
+	if entry.Size != 4096 {
+		t.Errorf("Size = %d, want 4096", entry.Size)
+	}
+}

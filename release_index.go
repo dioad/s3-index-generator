@@ -5,6 +5,8 @@ import (
 	"log"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/coreos/go-semver/semver"
@@ -106,8 +108,8 @@ type ProductIndex struct {
 	// Versions List of all product versions
 	Versions map[string]*VersionIndex `json:"versions,omitempty"`
 
-	// TODO: Latest Releases List of latest versions for each major version
-	// LatestReleases map[string]*VersionIndex   `json:"releases"`
+	// LatestReleases is the latest version of each major version, keyed by the major number.
+	LatestReleases map[string]*VersionIndex `json:"releases,omitempty"`
 
 	// LatestVersion Latest release of the product
 	LatestVersion *VersionIndex `json:"latest,omitempty"`
@@ -123,14 +125,28 @@ func (p *ProductIndex) AddVersion(v *VersionIndex) {
 		p.versions = append(p.versions, sv)
 		semver.Sort(p.versions)
 		p.LatestVersion = p.Versions[p.versions[len(p.versions)-1].String()]
+		p.LatestReleases[strconv.FormatInt(sv.Major, 10)] = p.Versions[p.latestOfMajor(sv.Major).String()]
 	}
+}
+
+// latestOfMajor returns the highest known version with the given major number. versions is sorted
+// and holds at least one version of that major when this is called.
+func (p *ProductIndex) latestOfMajor(major int64) *semver.Version {
+	for _, v := range slices.Backward(p.versions) {
+		if v.Major == major {
+			return v
+		}
+	}
+
+	return nil
 }
 
 func NewProductIndex(name string) *ProductIndex {
 	return &ProductIndex{
-		Name:     name,
-		Versions: make(map[string]*VersionIndex),
-		versions: make([]*semver.Version, 0),
+		Name:           name,
+		Versions:       make(map[string]*VersionIndex),
+		LatestReleases: make(map[string]*VersionIndex),
+		versions:       make([]*semver.Version, 0),
 	}
 }
 
@@ -193,6 +209,7 @@ type IndexEntry struct {
 	Filename string `json:"filename,omitempty"`
 	Name     string `json:"name,omitempty"` // Dioad/Project
 	Os       string `json:"os,omitempty"`   // Dioad/OS
+	Size     int64  `json:"size,omitempty"` // bytes
 	URL      string `json:"url,omitempty"`
 	Version  string `json:"version,omitempty"` // Dioad/Version
 }
@@ -212,6 +229,7 @@ func NewIndexEntry(cfg IndexConfig, o Object) (*IndexEntry, error) {
 		Filename: o.BaseName(),
 		Name:     releaseDetails["Product"],
 		Os:       releaseDetails["OS"],
+		Size:     o.Size(),
 		URL:      filepath.Join("/", o.Key()),
 		Version:  releaseDetails["Version"],
 	}

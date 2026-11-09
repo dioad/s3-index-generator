@@ -170,3 +170,25 @@ func TestCopyFilesFromSubPath_NestedDirectories(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadTemplates_IgnoresStaticAssetsInTheSameRoot(t *testing.T) {
+	root := fstest.MapFS{
+		"templates/multipage.index.html.tmpl": {Data: []byte(`{{ humanize 1536 }}`)},
+		"static/style.css":                    {Data: []byte("a{}")},
+		"static/favicon.ico":                  {Data: []byte{0x00, 0x00, 0x01, 0x00, 0xff, 0xfe, '{', '{', 0x80}},
+	}
+
+	tmpl, err := loadTemplates(root)
+	if err != nil {
+		t.Fatalf("loadTemplates() error = %v", err)
+	}
+
+	if tmpl.Lookup("multipage.index.html.tmpl") == nil {
+		t.Error("expected the template under templates/ to be loaded")
+	}
+	for _, name := range []string{"style.css", "favicon.ico"} {
+		if tmpl.Lookup(name) != nil {
+			t.Errorf("static asset %s must not be parsed as a template", name)
+		}
+	}
+}

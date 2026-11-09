@@ -34,6 +34,8 @@ func humanizeBytes(size int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(size)/float64(div), "KMGTPE"[exp])
 }
 
+// loadTemplates parses every file directly under templates/. The same root may also hold the static assets
+// (TEMPLATE_BUCKET_URL and STATIC_BUCKET_URL can be one location), which must not be parsed as templates.
 func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 	tplFuncMap := template.FuncMap{
 		"humanize": humanizeBytes,
@@ -41,7 +43,7 @@ func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 
 	tmpl := template.New("")
 	tmpl.Funcs(tplFuncMap)
-	tmpl, err := tmpl.ParseFS(templateFS, "**/*")
+	tmpl, err := tmpl.ParseFS(templateFS, "templates/*")
 	if err != nil {
 		return nil, err
 	}

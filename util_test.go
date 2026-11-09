@@ -150,3 +150,23 @@ func TestS3ReadFSSignature(t *testing.T) {
 		t.Error("signature should change when an ETag changes")
 	}
 }
+
+func TestCopyFilesFromSubPath_NestedDirectories(t *testing.T) {
+	src := fstest.MapFS{
+		"static/style.css":               {Data: []byte("a{}")},
+		"static/fonts/poppins-400.woff2": {Data: []byte("font")},
+		"static/images/logo.svg":         {Data: []byte("<svg/>")},
+	}
+	// An OS-backed file system does not create missing parent directories on write, unlike a memory one.
+	dest := afero.NewBasePathFs(afero.NewOsFs(), t.TempDir())
+
+	if err := CopyFilesFromSubPath(dest, src, "static"); err != nil {
+		t.Fatal(err)
+	}
+
+	for name := range src {
+		if exists, _ := afero.Exists(dest, name); !exists {
+			t.Errorf("expected %s to be copied", name)
+		}
+	}
+}

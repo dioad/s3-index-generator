@@ -85,7 +85,7 @@ func CopyFile(destFS afero.Fs, srcFS fs.FS) fs.WalkDirFunc {
 		}
 
 		if d.IsDir() {
-			return destFS.MkdirAll(d.Name(), 0755)
+			return destFS.MkdirAll(p, 0755)
 		}
 
 		srcFile, err := srcFS.Open(p)

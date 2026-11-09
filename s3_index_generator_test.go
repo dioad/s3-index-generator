@@ -138,7 +138,7 @@ func TestRenderObjectTreeIndexes_JSONAndHTML(t *testing.T) {
 
 func TestHandleRequest_EmptyRecords(t *testing.T) {
 	handler := HandleRequest(nil, Config{})
-	err := handler(context.Background(), events.S3Event{Records: []events.S3EventRecord{}})
+	err := handler(context.Background(), Invocation{Records: []events.S3EventRecord{}})
 	if err != nil {
 		t.Errorf("expected nil error for empty records, got %v", err)
 	}

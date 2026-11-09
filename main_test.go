@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"testing"
 
@@ -243,6 +244,35 @@ func TestRecordsToIndex(t *testing.T) {
 
 			if got := recordsToIndex(cfg, event); got != tt.want {
 				t.Errorf("recordsToIndex() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestInvocationUnmarshal(t *testing.T) {
+	cfg := Config{ObjectPrefix: "data"}
+
+	tests := []struct {
+		name    string
+		payload string
+		want    bool
+	}{
+		{"s3 notification", `{"Records":[{"eventName":"ObjectCreated:Put","s3":{"object":{"key":"data/p/1.0.0/p.zip"}}}]}`, true},
+		{"s3 notification for a generated index", `{"Records":[{"s3":{"object":{"key":"data/p/index.html"}}}]}`, false},
+		{"reindex request", `{"reindex":true}`, true},
+		{"reindex false", `{"reindex":false}`, false},
+		{"empty event", `{}`, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var invocation Invocation
+			if err := json.Unmarshal([]byte(tt.payload), &invocation); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+
+			if got := shouldIndex(cfg, invocation); got != tt.want {
+				t.Errorf("shouldIndex() = %v, want %v", got, tt.want)
 			}
 		})
 	}

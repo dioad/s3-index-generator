@@ -194,13 +194,34 @@ func recordsToIndex(cfg Config, event events.S3Event) int {
 	return count
 }
 
-// HandleRequest returns the Lambda handler for S3 events. The index is rebuilt in full, so one run
-// covers every record in the event however many qualify.
-func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, event events.S3Event) error {
-	return func(ctx context.Context, event events.S3Event) error {
-		fmt.Printf("records length: %d\n", len(event.Records))
+// Invocation is the Lambda payload. It is either an S3 event notification or, with Reindex set, a request
+// to rebuild every index without any S3 record, e.g. after publishing a new template:
+//
+//	aws lambda invoke --function-name <name> --cli-binary-format raw-in-base64-out --payload '{"reindex":true}' out.json
+type Invocation struct {
+	events.S3Event
 
-		if recordsToIndex(cfg, event) == 0 {
+	Reindex bool `json:"reindex,omitempty"`
+}
+
+// shouldIndex reports whether the invocation warrants an index run.
+func shouldIndex(cfg Config, invocation Invocation) bool {
+	if invocation.Reindex {
+		fmt.Println("reindex requested")
+
+		return true
+	}
+
+	return recordsToIndex(cfg, invocation.S3Event) > 0
+}
+
+// HandleRequest returns the Lambda handler. The index is rebuilt in full, so one run covers every record
+// in the event however many qualify.
+func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, invocation Invocation) error {
+	return func(ctx context.Context, invocation Invocation) error {
+		fmt.Printf("records length: %d\n", len(invocation.Records))
+
+		if !shouldIndex(cfg, invocation) {
 			return nil
 		}
 

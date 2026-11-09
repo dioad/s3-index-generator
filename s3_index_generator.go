@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -67,6 +69,9 @@ func nonce() string {
 	return base64.StdEncoding.EncodeToString(nonce)
 }
 
+// errNoIndex is returned by a renderer that has nothing to write for a directory, so no file is created.
+var errNoIndex = errors.New("no index for this directory")
+
 func IndexForObjectTree(cfg IndexConfig, objectTree *ObjectTree) any {
 	var index any
 	if IsProductTree(objectTree) {
@@ -93,6 +98,9 @@ func JSONIndexRenderer(config IndexConfig) IndexRenderer {
 		Render: func(stream io.Writer, objectTree *ObjectTree) error {
 			// New Index
 			index := IndexForObjectTree(config, objectTree)
+			if index == nil {
+				return errNoIndex
+			}
 
 			jsonEncoder := json.NewEncoder(stream)
 
@@ -116,17 +124,26 @@ func HTMLIndexRenderer(tmpl *template.Template, templateName string) IndexRender
 }
 
 func RenderObjectTreeIndexFile(objectTree *ObjectTree, fileRenderer IndexRenderer, destFS afero.Fs) error {
+	// Render before opening the destination so a directory with no index never creates (or truncates) a file.
+	var rendered bytes.Buffer
+	if err := fileRenderer.Render(&rendered, objectTree); err != nil {
+		if errors.Is(err, errNoIndex) {
+			return nil
+		}
+
+		return fmt.Errorf("failed to render index file: %w", err)
+	}
+
 	indexFile := path.Join(fileRenderer.IndexFile)
 	f, err := destFS.OpenFile(indexFile, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
 
-	err = fileRenderer.Render(f, objectTree)
-	if err != nil {
+	if _, err := rendered.WriteTo(f); err != nil {
 		writerErr := f.Close()
 
-		return fmt.Errorf("failed to render index file: %w, failed to close file: %w", err, writerErr)
+		return fmt.Errorf("failed to write index file: %w, failed to close file: %w", err, writerErr)
 	}
 
 	return f.Close()

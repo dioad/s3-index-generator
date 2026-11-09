@@ -5,6 +5,7 @@ import (
 	"embed"
 	"encoding/json"
 	"io"
+	"strings"
 	"testing"
 
 	"github.com/aws/aws-lambda-go/events"
@@ -141,5 +142,33 @@ func TestHandleRequest_EmptyRecords(t *testing.T) {
 	err := handler(context.Background(), Invocation{Records: []events.S3EventRecord{}})
 	if err != nil {
 		t.Errorf("expected nil error for empty records, got %v", err)
+	}
+}
+
+func TestRenderObjectTreeIndexes_NoJSONForNonReleaseDirectories(t *testing.T) {
+	tree := NewObjectTreeWithObjects(ObjectTreeConfig{}, []Object{
+		simpleObject("docs/readme.txt"),
+		simpleObject("product/2.0.0/product_linux_amd64.tar.gz"),
+	})
+	destFS := afero.NewMemMapFs()
+
+	if err := RenderObjectTreeIndexes(tree, IndexRenderers{JSONIndexRenderer(DioadIndexConfig)}, destFS, true); err != nil {
+		t.Fatalf("RenderObjectTreeIndexes() error = %v", err)
+	}
+
+	for _, path := range []string{"/index.json", "/product/index.json", "/product/2.0.0/index.json"} {
+		data, err := afero.ReadFile(destFS, path)
+		if err != nil {
+			t.Errorf("expected %s to exist: %v", path, err)
+
+			continue
+		}
+		if strings.TrimSpace(string(data)) == "null" {
+			t.Errorf("%s contains null", path)
+		}
+	}
+
+	if exists, _ := afero.Exists(destFS, "/docs/index.json"); exists {
+		t.Error("expected no /docs/index.json for a directory that holds no releases")
 	}
 }

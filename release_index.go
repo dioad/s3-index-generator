@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"log"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -148,6 +149,23 @@ func (v *VersionIndex) AddBuild(build *IndexEntry) {
 	v.Builds = append(v.Builds, build)
 }
 
+// addObject records o as a build, or as the shasums file, and reports whether it was recognised.
+func (v *VersionIndex) addObject(cfg IndexConfig, o Object) bool {
+	isShasums := strings.HasSuffix(o.Key(), "_SHA256SUMS")
+	if isShasums {
+		v.Shasums = o.Key()
+	}
+
+	indexEntry, err := NewIndexEntry(cfg, o)
+	if err != nil {
+		return isShasums
+	}
+
+	v.AddBuild(indexEntry)
+
+	return true
+}
+
 func NewVersionIndex(cfg IndexConfig, objectTree *ObjectTree) *VersionIndex {
 	versionIndex := &VersionIndex{
 		Name:    objectTree.ParentName(),
@@ -155,15 +173,16 @@ func NewVersionIndex(cfg IndexConfig, objectTree *ObjectTree) *VersionIndex {
 		Builds:  make([]*IndexEntry, 0),
 	}
 
-	for _, v := range objectTree.Objects {
-		indexEntry, err := NewIndexEntry(cfg, v)
-		if err == nil {
-			versionIndex.AddBuild(indexEntry)
-		}
+	unmatched := 0
 
-		if strings.HasSuffix(v.Key(), "_SHA256SUMS") {
-			versionIndex.Shasums = v.Key()
+	for _, v := range objectTree.Objects {
+		if !versionIndex.addObject(cfg, v) {
+			unmatched++
 		}
+	}
+
+	if unmatched > 0 {
+		log.Printf("%q: %d object(s) matched no release key pattern and are not in the index", objectTree.FullPath, unmatched) //nolint:gosec // %q escapes control characters in the S3-derived path
 	}
 
 	return versionIndex

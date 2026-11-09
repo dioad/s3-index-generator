@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"io/fs"
 	"testing"
 	"testing/fstest"
@@ -91,7 +92,7 @@ func TestCopyStaticOnce(t *testing.T) {
 	src := &signedMapFS{files: fstest.MapFS{"static/style.css": {Data: []byte("a{}")}}, sig: "v1"}
 	dest := afero.NewMemMapFs()
 
-	if err := copyStaticOnce(dest, src); err != nil {
+	if err := copyStaticOnce(dest, "dest", src); err != nil {
 		t.Fatal(err)
 	}
 	opens := src.opens
@@ -99,14 +100,14 @@ func TestCopyStaticOnce(t *testing.T) {
 		t.Fatal("expected static/style.css to be copied")
 	}
 
-	if err := copyStaticOnce(dest, src); err != nil {
+	if err := copyStaticOnce(dest, "dest", src); err != nil {
 		t.Fatal(err)
 	}
 	if src.opens != opens {
 		t.Error("unchanged assets copied to the same destination should not be copied again")
 	}
 
-	if err := copyStaticOnce(afero.NewMemMapFs(), src); err != nil {
+	if err := copyStaticOnce(afero.NewMemMapFs(), "other", src); err != nil {
 		t.Fatal(err)
 	}
 	if src.opens == opens {
@@ -115,7 +116,7 @@ func TestCopyStaticOnce(t *testing.T) {
 
 	opens = src.opens
 	src.sig = "v2"
-	if err := copyStaticOnce(afero.NewMemMapFs(), src); err != nil {
+	if err := copyStaticOnce(afero.NewMemMapFs(), "other", src); err != nil {
 		t.Fatal(err)
 	}
 	if src.opens == opens {
@@ -134,7 +135,7 @@ func TestS3ReadFSSignature(t *testing.T) {
 			return &s3.ListObjectsV2Output{Contents: []s3types.Object{{Key: aws.String("pfx/templates/a.tmpl"), ETag: aws.String(etag), Size: aws.Int64(3)}}}, nil
 		},
 	}
-	f := newS3ReadFS(client, "bucket", "pfx")
+	f := newS3ReadFS(context.Background(), client, "bucket", "pfx")
 
 	before, err := f.signature()
 	if err != nil {

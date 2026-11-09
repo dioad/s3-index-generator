@@ -220,3 +220,24 @@ func TestListObjectsWithTags(t *testing.T) {
 		t.Errorf("expected tag version=1.0, got %v", objects[0].Tags())
 	}
 }
+
+func TestFetchObjectTagsWithBackoff_StopsWhenContextCancelled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	attempts := 0
+	mock := &mockS3Client{
+		getObjectTagging: func(_ context.Context, _ *s3.GetObjectTaggingInput) (*s3.GetObjectTaggingOutput, error) {
+			attempts++
+			cancel() // e.g. the Lambda deadline passes during the first attempt
+
+			return nil, errors.New("transient error")
+		},
+	}
+
+	_, err := fetchObjectTagsWithBackoff(ctx, mock, "test-bucket", "some/key.zip", backoff.WithMaxRetries(&backoff.ZeroBackOff{}, 100))
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	if attempts != 1 {
+		t.Errorf("expected retries to stop after 1 attempt, got %d", attempts)
+	}
+}

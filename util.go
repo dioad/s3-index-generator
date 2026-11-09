@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"html/template"
@@ -48,20 +49,20 @@ func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 	return tmpl, nil
 }
 
-func IOFSFromS3URL(client *s3.Client, url *url.URL) (fs.FS, error) {
+func IOFSFromS3URL(ctx context.Context, client *s3.Client, url *url.URL) (fs.FS, error) {
 	if url.Scheme != "s3" {
 		return nil, errors.New("requires s3 URL")
 	}
 
-	return newS3ReadFS(client, url.Host, strings.TrimPrefix(url.Path, "/")), nil
+	return newS3ReadFS(ctx, client, url.Host, strings.TrimPrefix(url.Path, "/")), nil
 }
 
-func FSFromBucketURL(client *s3.Client, bucketURL *url.URL) (fs.FS, error) {
+func FSFromBucketURL(ctx context.Context, client *s3.Client, bucketURL *url.URL) (fs.FS, error) {
 	if bucketURL == nil {
 		return nil, errors.New("bucket URL is required")
 	}
 
-	s3Fs, err := IOFSFromS3URL(client, bucketURL)
+	s3Fs, err := IOFSFromS3URL(ctx, client, bucketURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load FS from %v: %w", bucketURL.Redacted(), err)
 	}
@@ -69,9 +70,9 @@ func FSFromBucketURL(client *s3.Client, bucketURL *url.URL) (fs.FS, error) {
 	return s3Fs, nil
 }
 
-func FSFromS3URLOrDefault(client *s3.Client, s3URL *url.URL, defaultFS fs.FS) (fs.FS, error) {
+func FSFromS3URLOrDefault(ctx context.Context, client *s3.Client, s3URL *url.URL, defaultFS fs.FS) (fs.FS, error) {
 	if s3URL != nil {
-		return FSFromBucketURL(client, s3URL)
+		return FSFromBucketURL(ctx, client, s3URL)
 	}
 
 	return defaultFS, nil
@@ -124,7 +125,7 @@ func NewLocalOutputFS(localOutputDirectory string) (afero.Fs, error) {
 	return afero.NewBasePathFs(o, localOutputDirectory), nil
 }
 
-func NewS3OutputFS(client *s3.Client, bucketName string, prefix string, serverSideEncryption *string) afero.Fs {
+func NewS3OutputFS(ctx context.Context, client *s3.Client, bucketName string, prefix string, serverSideEncryption *string) afero.Fs {
 	bucketKeyEnabled := true
 	var sse s3types.ServerSideEncryption
 	if serverSideEncryption != nil {
@@ -144,6 +145,7 @@ func NewS3OutputFS(client *s3.Client, bucketName string, prefix string, serverSi
 	}
 
 	var outputFS afero.Fs = &s3WriteFS{
+		ctx:    ctx,
 		client: client,
 		bucket: bucketName,
 		props:  props,
@@ -175,7 +177,7 @@ var (
 
 	staticCopyMu sync.Mutex
 	staticCopy   struct {
-		dest      afero.Fs
+		dest      string
 		signature string
 	}
 )
@@ -187,7 +189,7 @@ func resetCaches() {
 	templateCacheMu.Unlock()
 
 	staticCopyMu.Lock()
-	staticCopy.dest, staticCopy.signature = nil, ""
+	staticCopy.dest, staticCopy.signature = "", ""
 	staticCopyMu.Unlock()
 }
 
@@ -204,8 +206,8 @@ func sourceSignature(fsys fs.FS) (string, bool, error) {
 
 // LoadTemplates parses the templates from templateBucketURL, or the embedded ones when it is nil. Templates
 // read from S3 are reused across invocations of a warm Lambda for as long as their ETags are unchanged.
-func LoadTemplates(client *s3.Client, templateBucketURL *url.URL) (*template.Template, error) {
-	tmplFS, err := FSFromS3URLOrDefault(client, templateBucketURL, defaultTemplateFS)
+func LoadTemplates(ctx context.Context, client *s3.Client, templateBucketURL *url.URL) (*template.Template, error) {
+	tmplFS, err := FSFromS3URLOrDefault(ctx, client, templateBucketURL, defaultTemplateFS)
 	if err != nil {
 		return nil, err
 	}
@@ -239,17 +241,18 @@ func loadCachedTemplates(tmplFS fs.FS) (*template.Template, error) {
 }
 
 // CopyStaticFiles copies the static assets from staticBucketURL, or the embedded ones when it is nil, into
-// destFS. A copy already made to the same destFS from unchanged assets is not repeated.
-func CopyStaticFiles(client *s3.Client, destFS afero.Fs, staticBucketURL *url.URL) error {
-	staticFS, err := FSFromS3URLOrDefault(client, staticBucketURL, defaultStaticFS)
+// destFS. destKey names the destination (e.g. bucket and prefix); a copy already made to the same
+// destKey from unchanged assets is not repeated.
+func CopyStaticFiles(ctx context.Context, client *s3.Client, destFS afero.Fs, destKey string, staticBucketURL *url.URL) error {
+	staticFS, err := FSFromS3URLOrDefault(ctx, client, staticBucketURL, defaultStaticFS)
 	if err != nil {
 		return fmt.Errorf("failed to load static assets from bucket %v: %w", staticBucketURL, err)
 	}
 
-	return copyStaticOnce(destFS, staticFS)
+	return copyStaticOnce(destFS, destKey, staticFS)
 }
 
-func copyStaticOnce(destFS afero.Fs, staticFS fs.FS) error {
+func copyStaticOnce(destFS afero.Fs, destKey string, staticFS fs.FS) error {
 	sig, _, err := sourceSignature(staticFS)
 	if err != nil {
 		return fmt.Errorf("failed to check static assets for changes: %w", err)
@@ -258,14 +261,14 @@ func copyStaticOnce(destFS afero.Fs, staticFS fs.FS) error {
 	staticCopyMu.Lock()
 	defer staticCopyMu.Unlock()
 
-	if staticCopy.dest == destFS && staticCopy.signature == sig {
+	if staticCopy.dest == destKey && staticCopy.signature == sig {
 		return nil
 	}
 
 	if err := CopyFilesFromSubPath(destFS, staticFS, "static"); err != nil {
 		return fmt.Errorf("failed to copy static files %w", err)
 	}
-	staticCopy.dest, staticCopy.signature = destFS, sig
+	staticCopy.dest, staticCopy.signature = destKey, sig
 
 	return nil
 }

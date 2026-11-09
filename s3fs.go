@@ -41,6 +41,8 @@ const (
 )
 
 type s3WriteFS struct {
+	// ctx bounds every S3 call made through the file system; afero.Fs methods carry no context of their own.
+	ctx    context.Context //nolint:containedctx // see above
 	client *s3.Client
 	bucket string
 	props  *S3FileProps
@@ -70,6 +72,7 @@ func (f *s3WriteFS) OpenFile(name string, _ int, _ os.FileMode) (afero.File, err
 	key := strings.TrimPrefix(name, "/")
 
 	return &s3WriteFile{
+		ctx:    f.ctx,
 		client: f.client,
 		bucket: f.bucket,
 		key:    key,
@@ -80,6 +83,7 @@ func (f *s3WriteFS) OpenFile(name string, _ int, _ os.FileMode) (afero.File, err
 
 // s3WriteFile buffers writes and uploads to S3 on Close.
 type s3WriteFile struct {
+	ctx    context.Context //nolint:containedctx // see s3WriteFS
 	client *s3.Client
 	bucket string
 	key    string
@@ -129,7 +133,7 @@ func (f *s3WriteFile) Close() error {
 		}
 	}
 
-	_, err := f.client.PutObject(context.Background(), input)
+	_, err := f.client.PutObject(f.ctx, input)
 	if err != nil {
 		return fmt.Errorf("s3 upload %s: %w", f.key, err)
 	}
@@ -173,13 +177,16 @@ type s3ReadAPI interface {
 }
 
 type s3ReadFS struct {
+	// ctx bounds every S3 call made through the file system; fs.FS methods carry no context of their own.
+	ctx    context.Context //nolint:containedctx // see above
 	client s3ReadAPI
 	bucket string
 	prefix string // base prefix within bucket, no leading/trailing slashes
 }
 
-func newS3ReadFS(client s3ReadAPI, bucket, prefix string) *s3ReadFS {
+func newS3ReadFS(ctx context.Context, client s3ReadAPI, bucket, prefix string) *s3ReadFS {
 	return &s3ReadFS{
+		ctx:    ctx,
 		client: client,
 		bucket: bucket,
 		prefix: strings.Trim(prefix, "/"),
@@ -204,7 +211,7 @@ func (f *s3ReadFS) Open(name string) (fs.File, error) {
 	}
 
 	key := f.fullKey(name)
-	resp, err := f.client.GetObject(context.Background(), &s3.GetObjectInput{
+	resp, err := f.client.GetObject(f.ctx, &s3.GetObjectInput{
 		Bucket: &f.bucket,
 		Key:    aws.String(key),
 	})
@@ -240,7 +247,7 @@ func (f *s3ReadFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	var continuationToken *string
 
 	for {
-		output, err := f.client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
+		output, err := f.client.ListObjectsV2(f.ctx, &s3.ListObjectsV2Input{
 			Bucket:            &f.bucket,
 			Prefix:            aws.String(s3Prefix),
 			Delimiter:         aws.String("/"),
@@ -273,7 +280,7 @@ func (f *s3ReadFS) signature() (string, error) {
 
 	var continuationToken *string
 	for {
-		output, err := f.client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
+		output, err := f.client.ListObjectsV2(f.ctx, &s3.ListObjectsV2Input{
 			Bucket:            &f.bucket,
 			Prefix:            aws.String(prefix),
 			ContinuationToken: continuationToken,
@@ -348,7 +355,7 @@ func (f *s3ReadFS) Stat(name string) (fs.FileInfo, error) {
 
 	key := f.fullKey(name)
 
-	resp, err := f.client.HeadObject(context.Background(), &s3.HeadObjectInput{
+	resp, err := f.client.HeadObject(f.ctx, &s3.HeadObjectInput{
 		Bucket: &f.bucket,
 		Key:    aws.String(key),
 	})
@@ -361,7 +368,7 @@ func (f *s3ReadFS) Stat(name string) (fs.FileInfo, error) {
 	}
 
 	// Not a file — check if it's a directory prefix.
-	listResp, listErr := f.client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
+	listResp, listErr := f.client.ListObjectsV2(f.ctx, &s3.ListObjectsV2Input{
 		Bucket:  &f.bucket,
 		Prefix:  aws.String(key + "/"),
 		MaxKeys: aws.Int32(1),

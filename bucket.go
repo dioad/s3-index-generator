@@ -114,11 +114,12 @@ func fetchObjectTagsWithBackoff(ctx context.Context, client s3ObjectAPI, bucketN
 	var tags *s3.GetObjectTaggingOutput
 	var err error
 
+	// WithContext stops the retries, and any wait between them, as soon as ctx is done.
 	err = backoff.Retry(func() error {
 		tags, err = client.GetObjectTagging(ctx, tagInput)
 
 		return err
-	}, b)
+	}, backoff.WithContext(b, ctx))
 
 	if err != nil {
 		return nil, fmt.Errorf("error fetching tags for %v: %w", key, err)

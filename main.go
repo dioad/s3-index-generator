@@ -218,9 +218,6 @@ func shouldIndex(cfg Config, invocation Invocation) bool {
 // HandleRequest returns the Lambda handler. The index is rebuilt in full, so one run covers every record
 // in the event however many qualify.
 func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, invocation Invocation) error {
-	// Created once per container so cached static assets are recognised as already copied to it.
-	outputFS := NewS3OutputFS(client, cfg.Bucket, cfg.DestinationBucketPrefix, &cfg.ServerSideEncryption)
-
 	return func(ctx context.Context, invocation Invocation) error {
 		fmt.Printf("records length: %d\n", len(invocation.Records))
 
@@ -231,6 +228,8 @@ func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, invo
 		if invocation.Reindex {
 			resetCaches()
 		}
+
+		outputFS := NewS3OutputFS(ctx, client, cfg.Bucket, cfg.DestinationBucketPrefix, &cfg.ServerSideEncryption)
 
 		return indexS3Bucket(ctx, client, cfg, outputFS)
 	}
@@ -245,14 +244,14 @@ type Pipeline struct {
 }
 
 // newPipeline constructs a Pipeline, resolving templates and static assets.
-func newPipeline(_ context.Context, client *s3.Client, cfg Config, outputFS afero.Fs) (*Pipeline, error) {
-	renderers, err := indexRenderers(client, cfg)
+func newPipeline(ctx context.Context, client *s3.Client, cfg Config, outputFS afero.Fs) (*Pipeline, error) {
+	renderers, err := indexRenderers(ctx, client, cfg)
 	if err != nil {
 		return nil, err
 	}
 
 	if slices.Contains(cfg.IndexFormats, HTMLIndex) {
-		if err := CopyStaticFiles(client, outputFS, cfg.StaticBucketURL); err != nil {
+		if err := CopyStaticFiles(ctx, client, outputFS, cfg.Bucket+"/"+cfg.DestinationBucketPrefix, cfg.StaticBucketURL); err != nil {
 			return nil, fmt.Errorf("failed to copy static files: %w", err)
 		}
 	}
@@ -321,7 +320,7 @@ func indexS3Bucket(ctx context.Context, client *s3.Client, cfg Config, outputFS 
 	return pipeline.renderIndexes(objectTree)
 }
 
-func indexRenderers(client *s3.Client, cfg Config) (IndexRenderers, error) {
+func indexRenderers(ctx context.Context, client *s3.Client, cfg Config) (IndexRenderers, error) {
 	renderers := make(IndexRenderers, 0)
 
 	indexCfg, err := buildIndexConfig(cfg.ReleaseKeyPatterns)
@@ -334,7 +333,7 @@ func indexRenderers(client *s3.Client, cfg Config) (IndexRenderers, error) {
 		case JSONIndex:
 			renderers = append(renderers, JSONIndexRenderer(indexCfg))
 		case HTMLIndex:
-			tmpl, err := LoadTemplates(client, cfg.TemplateBucketURL)
+			tmpl, err := LoadTemplates(ctx, client, cfg.TemplateBucketURL)
 			if err != nil {
 				return nil, fmt.Errorf("failed to load templates: %w", err)
 			}
@@ -410,7 +409,7 @@ func runCLI(ctx context.Context, client *s3.Client, cfg Config, args []string) e
 	}
 
 	if outputFS == nil {
-		outputFS = NewS3OutputFS(client, cfg.Bucket, "", &cfg.ServerSideEncryption)
+		outputFS = NewS3OutputFS(ctx, client, cfg.Bucket, "", &cfg.ServerSideEncryption)
 	}
 
 	cpuProf, err := os.Create("cpu.pprof")

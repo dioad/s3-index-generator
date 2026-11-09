@@ -161,13 +161,20 @@ func (f *s3WriteFile) Truncate(_ int64) error { return nil }
 // S3 read filesystem (fs.FS) — used for loading templates/static from S3
 // --------------------------------------------------------------------------
 
+// s3ReadAPI is the subset of the S3 API used by s3ReadFS, allowing mocking in tests.
+type s3ReadAPI interface {
+	GetObject(ctx context.Context, input *s3.GetObjectInput, optFns ...func(*s3.Options)) (*s3.GetObjectOutput, error)
+	HeadObject(ctx context.Context, input *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
+	ListObjectsV2(ctx context.Context, input *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
+}
+
 type s3ReadFS struct {
-	client *s3.Client
+	client s3ReadAPI
 	bucket string
 	prefix string // base prefix within bucket, no leading/trailing slashes
 }
 
-func newS3ReadFS(client *s3.Client, bucket, prefix string) *s3ReadFS {
+func newS3ReadFS(client s3ReadAPI, bucket, prefix string) *s3ReadFS {
 	return &s3ReadFS{
 		client: client,
 		bucket: bucket,

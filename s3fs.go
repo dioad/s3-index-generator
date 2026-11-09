@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -32,6 +33,7 @@ type S3FileProps struct {
 
 // Operation names used in fs.PathError values.
 const (
+	opOpen    = "open"
 	opStat    = "stat"
 	opReadDir = "readdir"
 )
@@ -55,7 +57,7 @@ func (f *s3WriteFS) Stat(name string) (os.FileInfo, error) {
 	return nil, &os.PathError{Op: opStat, Path: name, Err: fs.ErrPermission}
 }
 func (f *s3WriteFS) Open(name string) (afero.File, error) {
-	return nil, &os.PathError{Op: "open", Path: name, Err: fs.ErrPermission}
+	return nil, &os.PathError{Op: opOpen, Path: name, Err: fs.ErrPermission}
 }
 
 func (f *s3WriteFS) Create(name string) (afero.File, error) {
@@ -193,7 +195,7 @@ func (f *s3ReadFS) fullKey(name string) string {
 // Open implements fs.FS.
 func (f *s3ReadFS) Open(name string) (fs.File, error) {
 	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrInvalid}
+		return nil, &fs.PathError{Op: opOpen, Path: name, Err: fs.ErrInvalid}
 	}
 	if name == "." {
 		return &s3DirFile{fs: f, name: "."}, nil
@@ -205,8 +207,14 @@ func (f *s3ReadFS) Open(name string) (fs.File, error) {
 		Key:    aws.String(key),
 	})
 	if err != nil {
-		// Treat as a directory — ReadDir will determine if it actually exists.
-		return &s3DirFile{fs: f, name: name}, nil //nolint:nilerr // a failed GetObject is the directory case, not an error
+		// A missing key is how a directory prefix presents to GetObject; ReadDir determines whether it
+		// really exists. S3 only reports a missing key as NoSuchKey when the caller has s3:ListBucket,
+		// otherwise it answers AccessDenied, which is deliberately surfaced below rather than guessed at.
+		if _, ok := errors.AsType[*s3types.NoSuchKey](err); ok {
+			return &s3DirFile{fs: f, name: name}, nil
+		}
+
+		return nil, &fs.PathError{Op: opOpen, Path: name, Err: err}
 	}
 
 	return &s3ReadFile{

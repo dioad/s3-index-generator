@@ -98,6 +98,10 @@ type ObjectTree struct {
 	Children map[string]*ObjectTree // sub-directories
 }
 
+// SortedChildren returns Children in display order: folders that are not versions first, by name,
+// then version folders by semantic version, newest first (1.10.0 before 1.9.0).
+func (t *ObjectTree) SortedChildren() []*ObjectTree
+
 type Object interface {
 	Key() string               // full S3 key
 	BaseName() string
@@ -109,6 +113,8 @@ type Object interface {
 
 Each `ObjectTree` is one directory of the bucket (below `OBJECT_PREFIX`). `DirName` is the base name
 of the path and `FullPath` the whole path.
+Range over `.SortedChildren` rather than `.Children` to list sub-directories: ranging over the map
+gives plain string order, which puts `1.10.0` before `1.9.0`.
 
 In addition to the standard `html/template` functions, `humanize` formats a byte count with binary
 units:

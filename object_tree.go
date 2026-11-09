@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"golang.org/x/sync/errgroup"
@@ -34,6 +36,36 @@ func (t *ObjectTree) AddChild(name string) *ObjectTree {
 	}
 
 	return t.Children[name]
+}
+
+// SortedChildren returns the sub-directories in display order: folders that are not versions first, by
+// name, then version folders by semantic version, newest first. Ranging over Children directly yields
+// plain string order, which puts 1.10.0 before 1.9.0.
+func (t *ObjectTree) SortedChildren() []*ObjectTree {
+	children := slices.Collect(maps.Values(t.Children))
+
+	slices.SortFunc(children, func(a, b *ObjectTree) int {
+		aVersion, aErr := ParseSemVer(a.DirName)
+		bVersion, bErr := ParseSemVer(b.DirName)
+
+		switch {
+		case aErr != nil && bErr != nil:
+			return strings.Compare(a.DirName, b.DirName)
+		case aErr != nil:
+			return -1
+		case bErr != nil:
+			return 1
+		}
+
+		// Newest first. Versions that compare equal (e.g. "1.0" and "1.0.0") fall back to name order.
+		if c := bVersion.Compare(*aVersion); c != 0 {
+			return c
+		}
+
+		return strings.Compare(a.DirName, b.DirName)
+	})
+
+	return children
 }
 
 func (t *ObjectTree) ParentName() string {

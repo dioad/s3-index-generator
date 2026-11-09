@@ -1,7 +1,7 @@
 <ul>
-{{ range $key, $value := .Children }}
-    <li>{{ $key }}/
-        {{ template "partial.tree.html.tmpl" $value }}
+{{ range .SortedChildren }}
+    <li>{{ .DirName }}/
+        {{ template "partial.tree.html.tmpl" . }}
     </li>
 {{ end }}
 {{ range  .Objects }}

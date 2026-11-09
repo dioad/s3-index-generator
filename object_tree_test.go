@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -135,3 +136,29 @@ func TestWalker(t *testing.T) {
 }
 
 // Continue with the rest of the tests...
+
+func TestSortedChildren(t *testing.T) {
+	tree := NewRootObjectTree(ObjectTreeConfig{})
+	for _, name := range []string{"1.9.0", "docs", "1.10.0", "2.0.0-rc1", "build", "1.2.0", "2.0.0", "v1.0", "1.0.0", "archive"} {
+		tree.AddChild(name)
+	}
+
+	children := tree.SortedChildren()
+	got := make([]string, 0, len(children))
+	for _, child := range children {
+		got = append(got, child.DirName)
+	}
+
+	// Non-versions by name first; then versions newest first, with a pre-release before its release's
+	// predecessor and ties ("1.0.0" and "v1.0") in name order.
+	want := []string{"archive", "build", "docs", "2.0.0", "2.0.0-rc1", "1.10.0", "1.9.0", "1.2.0", "1.0.0", "v1.0"}
+	if !slices.Equal(got, want) {
+		t.Errorf("SortedChildren() = %v, want %v", got, want)
+	}
+}
+
+func TestSortedChildren_Empty(t *testing.T) {
+	if got := NewRootObjectTree(ObjectTreeConfig{}).SortedChildren(); len(got) != 0 {
+		t.Errorf("SortedChildren() = %v, want none", got)
+	}
+}

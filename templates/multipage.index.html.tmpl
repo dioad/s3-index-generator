@@ -13,8 +13,8 @@
         {{ if ne .ObjectTree.DirName  "/" }}
             <li><a href="../index.html">../</a></li>
         {{ end }}
-        {{ range $key, $value := .ObjectTree.Children }}
-            <li><a href="{{ $value.DirName }}/index.html">{{ $value.DirName }}/</a></li>
+        {{ range .ObjectTree.SortedChildren }}
+            <li><a href="{{ .DirName }}/index.html">{{ .DirName }}/</a></li>
         {{ end }}
         {{ range  .ObjectTree.Objects }}
             <li><a href="/{{ .Key }}">{{ .BaseName }}</a> {{ .LastModified }}</li>

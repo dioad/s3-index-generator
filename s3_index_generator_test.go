@@ -172,3 +172,31 @@ func TestRenderObjectTreeIndexes_NoJSONForNonReleaseDirectories(t *testing.T) {
 		t.Error("expected no /docs/index.json for a directory that holds no releases")
 	}
 }
+
+func TestHTMLIndex_ListsVersionFoldersNewestFirst(t *testing.T) {
+	tmpl, err := loadTemplates(testTemplateFS)
+	if err != nil {
+		t.Fatalf("loadTemplates() error = %v", err)
+	}
+
+	tree := NewObjectTreeWithObjects(ObjectTreeConfig{}, []Object{
+		simpleObject("product/1.9.0/a.zip"),
+		simpleObject("product/1.10.0/a.zip"),
+		simpleObject("product/1.2.0/a.zip"),
+	})
+
+	var out strings.Builder
+	if err := HTMLIndexRenderer(tmpl, "multipage.index.html.tmpl").Render(&out, tree.Children["product"]); err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+
+	html := out.String()
+	prev := -1
+	for _, dir := range []string{"1.10.0/", "1.9.0/", "1.2.0/"} {
+		i := strings.Index(html, ">"+dir+"<")
+		if i < 0 || i < prev {
+			t.Fatalf("expected %q after the previous version in:\n%s", dir, html)
+		}
+		prev = i
+	}
+}

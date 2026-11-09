@@ -1,24 +1,18 @@
-GORELEASER ?= goreleaser
-GORELEASER_CONFIG ?= .goreleaser.yml
-GORELEASER_SNAPSHOT_ARGS ?= release --clean --snapshot --skip=publish --skip=announce --skip=sign
 
-.PHONY: help goreleaser
 
-.DEFAULT_GOAL := help
+default: verify
 
 build:
-	go generate ./...
 	go build .
 
-format:
+lint:
 	go fmt ./...
 	go fix ./...
-
-lint:
-	go vet ./...
 	golangci-lint run ./...
+	gosec ./...
+	go vet ./...
 
 test:
 	go test -race ./...
 
-verify: format lint build
+verify: lint test build

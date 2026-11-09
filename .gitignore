@@ -1,2 +1,17 @@
 output/
 s3-index-generator
+
+.gograph/
+
+# Lambda build output and profiles
+bootstrap
+function-*.zip
+*.pprof
+
+# Key material must never be committed
+*.key
+*.cert
+*.pem
+
+# IDE-generated, untracked
+.idea/copilot.data.migration.agent.xml

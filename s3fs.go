@@ -30,23 +30,29 @@ type S3FileProps struct {
 	BucketKeyEnabled     *bool
 }
 
+// Operation names used in fs.PathError values.
+const (
+	opStat    = "stat"
+	opReadDir = "readdir"
+)
+
 type s3WriteFS struct {
 	client *s3.Client
 	bucket string
 	props  *S3FileProps
 }
 
-func (f *s3WriteFS) Name() string                                         { return "s3" }
-func (f *s3WriteFS) Mkdir(name string, _ os.FileMode) error               { return nil }
-func (f *s3WriteFS) MkdirAll(_ string, _ os.FileMode) error               { return nil }
-func (f *s3WriteFS) Chmod(_ string, _ os.FileMode) error                  { return nil }
-func (f *s3WriteFS) Chown(_ string, _, _ int) error                       { return nil }
-func (f *s3WriteFS) Chtimes(_ string, _, _ time.Time) error               { return nil }
-func (f *s3WriteFS) Remove(_ string) error                                 { return nil }
-func (f *s3WriteFS) RemoveAll(_ string) error                              { return nil }
-func (f *s3WriteFS) Rename(_, _ string) error                             { return nil }
+func (f *s3WriteFS) Name() string                           { return "s3" }
+func (f *s3WriteFS) Mkdir(_ string, _ os.FileMode) error    { return nil }
+func (f *s3WriteFS) MkdirAll(_ string, _ os.FileMode) error { return nil }
+func (f *s3WriteFS) Chmod(_ string, _ os.FileMode) error    { return nil }
+func (f *s3WriteFS) Chown(_ string, _, _ int) error         { return nil }
+func (f *s3WriteFS) Chtimes(_ string, _, _ time.Time) error { return nil }
+func (f *s3WriteFS) Remove(_ string) error                  { return nil }
+func (f *s3WriteFS) RemoveAll(_ string) error               { return nil }
+func (f *s3WriteFS) Rename(_, _ string) error               { return nil }
 func (f *s3WriteFS) Stat(name string) (os.FileInfo, error) {
-	return nil, &os.PathError{Op: "stat", Path: name, Err: fs.ErrPermission}
+	return nil, &os.PathError{Op: opStat, Path: name, Err: fs.ErrPermission}
 }
 func (f *s3WriteFS) Open(name string) (afero.File, error) {
 	return nil, &os.PathError{Op: "open", Path: name, Err: fs.ErrPermission}
@@ -58,6 +64,7 @@ func (f *s3WriteFS) Create(name string) (afero.File, error) {
 
 func (f *s3WriteFS) OpenFile(name string, _ int, _ os.FileMode) (afero.File, error) {
 	key := strings.TrimPrefix(name, "/")
+
 	return &s3WriteFile{
 		client: f.client,
 		bucket: f.bucket,
@@ -83,6 +90,7 @@ func (f *s3WriteFile) Write(p []byte) (int, error) {
 	if f.closed {
 		return 0, os.ErrClosed
 	}
+
 	return f.buf.Write(p)
 }
 
@@ -121,6 +129,7 @@ func (f *s3WriteFile) Close() error {
 	if err != nil {
 		return fmt.Errorf("s3 upload %s: %w", f.key, err)
 	}
+
 	return nil
 }
 
@@ -130,20 +139,20 @@ func (f *s3WriteFile) Read(_ []byte) (int, error) {
 func (f *s3WriteFile) ReadAt(_ []byte, _ int64) (int, error) {
 	return 0, &os.PathError{Op: "readat", Path: f.key, Err: fs.ErrPermission}
 }
-func (f *s3WriteFile) WriteAt(p []byte, off int64) (int, error) {
+func (f *s3WriteFile) WriteAt(_ []byte, _ int64) (int, error) {
 	return 0, &os.PathError{Op: "writeat", Path: f.key, Err: fs.ErrPermission}
 }
 func (f *s3WriteFile) Seek(_ int64, _ int) (int64, error) {
 	return 0, &os.PathError{Op: "seek", Path: f.key, Err: fs.ErrPermission}
 }
 func (f *s3WriteFile) Readdir(_ int) ([]os.FileInfo, error) {
-	return nil, &os.PathError{Op: "readdir", Path: f.key, Err: fs.ErrPermission}
+	return nil, &os.PathError{Op: opReadDir, Path: f.key, Err: fs.ErrPermission}
 }
 func (f *s3WriteFile) Readdirnames(_ int) ([]string, error) {
 	return nil, &os.PathError{Op: "readdirnames", Path: f.key, Err: fs.ErrPermission}
 }
 func (f *s3WriteFile) Stat() (os.FileInfo, error) {
-	return nil, &os.PathError{Op: "stat", Path: f.key, Err: fs.ErrPermission}
+	return nil, &os.PathError{Op: opStat, Path: f.key, Err: fs.ErrPermission}
 }
 func (f *s3WriteFile) Sync() error            { return nil }
 func (f *s3WriteFile) Truncate(_ int64) error { return nil }
@@ -170,6 +179,7 @@ func (f *s3ReadFS) fullKey(name string) string {
 	if f.prefix == "" {
 		return name
 	}
+
 	return f.prefix + "/" + name
 }
 
@@ -189,7 +199,7 @@ func (f *s3ReadFS) Open(name string) (fs.File, error) {
 	})
 	if err != nil {
 		// Treat as a directory — ReadDir will determine if it actually exists.
-		return &s3DirFile{fs: f, name: name}, nil
+		return &s3DirFile{fs: f, name: name}, nil //nolint:nilerr // a failed GetObject is the directory case, not an error
 	}
 
 	return &s3ReadFile{
@@ -204,17 +214,10 @@ func (f *s3ReadFS) Open(name string) (fs.File, error) {
 // ReadDir implements fs.ReadDirFS.
 func (f *s3ReadFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "readdir", Path: name, Err: fs.ErrInvalid}
+		return nil, &fs.PathError{Op: opReadDir, Path: name, Err: fs.ErrInvalid}
 	}
 
-	var s3Prefix string
-	if name == "." {
-		if f.prefix != "" {
-			s3Prefix = f.prefix + "/"
-		}
-	} else {
-		s3Prefix = f.fullKey(name) + "/"
-	}
+	s3Prefix := f.dirPrefix(name)
 
 	var entries []fs.DirEntry
 	var continuationToken *string
@@ -227,34 +230,10 @@ func (f *s3ReadFS) ReadDir(name string) ([]fs.DirEntry, error) {
 			ContinuationToken: continuationToken,
 		})
 		if err != nil {
-			return nil, &fs.PathError{Op: "readdir", Path: name, Err: err}
+			return nil, &fs.PathError{Op: opReadDir, Path: name, Err: err}
 		}
 
-		for _, cp := range output.CommonPrefixes {
-			if cp.Prefix == nil {
-				continue
-			}
-			dirName := strings.TrimSuffix(strings.TrimPrefix(*cp.Prefix, s3Prefix), "/")
-			if dirName != "" {
-				entries = append(entries, &s3DirEntry{name: dirName, isDir: true})
-			}
-		}
-
-		for _, obj := range output.Contents {
-			if obj.Key == nil {
-				continue
-			}
-			fileName := strings.TrimPrefix(*obj.Key, s3Prefix)
-			if fileName == "" || strings.Contains(fileName, "/") {
-				continue
-			}
-			entries = append(entries, &s3DirEntry{
-				name:  fileName,
-				isDir: false,
-				size:  aws.ToInt64(obj.Size),
-				mtime: aws.ToTime(obj.LastModified),
-			})
-		}
+		entries = appendDirEntries(entries, output, s3Prefix)
 
 		if !aws.ToBool(output.IsTruncated) {
 			break
@@ -269,10 +248,54 @@ func (f *s3ReadFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	return entries, nil
 }
 
+// dirPrefix returns the S3 key prefix that lists the contents of the directory name.
+func (f *s3ReadFS) dirPrefix(name string) string {
+	if name != "." {
+		return f.fullKey(name) + "/"
+	}
+
+	if f.prefix != "" {
+		return f.prefix + "/"
+	}
+
+	return ""
+}
+
+// appendDirEntries adds the immediate sub-directories and files of one ListObjectsV2 page to entries.
+func appendDirEntries(entries []fs.DirEntry, output *s3.ListObjectsV2Output, s3Prefix string) []fs.DirEntry {
+	for _, cp := range output.CommonPrefixes {
+		if cp.Prefix == nil {
+			continue
+		}
+		dirName := strings.TrimSuffix(strings.TrimPrefix(*cp.Prefix, s3Prefix), "/")
+		if dirName != "" {
+			entries = append(entries, &s3DirEntry{name: dirName, isDir: true})
+		}
+	}
+
+	for _, obj := range output.Contents {
+		if obj.Key == nil {
+			continue
+		}
+		fileName := strings.TrimPrefix(*obj.Key, s3Prefix)
+		if fileName == "" || strings.Contains(fileName, "/") {
+			continue
+		}
+		entries = append(entries, &s3DirEntry{
+			name:  fileName,
+			isDir: false,
+			size:  aws.ToInt64(obj.Size),
+			mtime: aws.ToTime(obj.LastModified),
+		})
+	}
+
+	return entries
+}
+
 // Stat implements fs.StatFS.
 func (f *s3ReadFS) Stat(name string) (fs.FileInfo, error) {
 	if !fs.ValidPath(name) {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrInvalid}
+		return nil, &fs.PathError{Op: opStat, Path: name, Err: fs.ErrInvalid}
 	}
 	if name == "." {
 		return &s3FileInfo{name: ".", mode: fs.ModeDir}, nil
@@ -299,13 +322,13 @@ func (f *s3ReadFS) Stat(name string) (fs.FileInfo, error) {
 		MaxKeys: aws.Int32(1),
 	})
 	if listErr != nil {
-		return nil, &fs.PathError{Op: "stat", Path: name, Err: listErr}
+		return nil, &fs.PathError{Op: opStat, Path: name, Err: listErr}
 	}
 	if len(listResp.Contents) > 0 || len(listResp.CommonPrefixes) > 0 {
 		return &s3FileInfo{name: path.Base(name), mode: fs.ModeDir}, nil
 	}
 
-	return nil, &fs.PathError{Op: "stat", Path: name, Err: fs.ErrNotExist}
+	return nil, &fs.PathError{Op: opStat, Path: name, Err: fs.ErrNotExist}
 }
 
 // --------------------------------------------------------------------------
@@ -339,6 +362,7 @@ func (e *s3DirEntry) Type() fs.FileMode {
 	if e.isDir {
 		return fs.ModeDir
 	}
+
 	return 0
 }
 func (e *s3DirEntry) Info() (fs.FileInfo, error) {
@@ -356,11 +380,13 @@ type s3ReadFile struct {
 	info *s3FileInfo
 }
 
-func (f *s3ReadFile) Read(p []byte) (int, error)      { return f.body.Read(p) }
-func (f *s3ReadFile) Close() error                    { return f.body.Close() }
-func (f *s3ReadFile) Stat() (fs.FileInfo, error)      { return f.info, nil }
+func (f *s3ReadFile) Read(p []byte) (int, error) { return f.body.Read(p) }
+func (f *s3ReadFile) Close() error               { return f.body.Close() }
+func (f *s3ReadFile) Stat() (fs.FileInfo, error) { return f.info, nil }
+
+//nolint:unparam // signature is fixed by fs.ReadDirFile
 func (f *s3ReadFile) ReadDir(_ int) ([]fs.DirEntry, error) {
-	return nil, &fs.PathError{Op: "readdir", Path: f.info.Name(), Err: fs.ErrInvalid}
+	return nil, &fs.PathError{Op: opReadDir, Path: f.info.Name(), Err: fs.ErrInvalid}
 }
 
 // s3DirFile is the fs.File returned for directory paths.
@@ -374,8 +400,10 @@ type s3DirFile struct {
 func (f *s3DirFile) Read(_ []byte) (int, error) {
 	return 0, &fs.PathError{Op: "read", Path: f.name, Err: fs.ErrInvalid}
 }
-func (f *s3DirFile) Close() error                { return nil }
-func (f *s3DirFile) Stat() (fs.FileInfo, error)  { return &s3FileInfo{name: path.Base(f.name), mode: fs.ModeDir}, nil }
+func (f *s3DirFile) Close() error { return nil }
+func (f *s3DirFile) Stat() (fs.FileInfo, error) {
+	return &s3FileInfo{name: path.Base(f.name), mode: fs.ModeDir}, nil
+}
 
 func (f *s3DirFile) ReadDir(n int) ([]fs.DirEntry, error) {
 	if f.entries == nil {
@@ -388,16 +416,15 @@ func (f *s3DirFile) ReadDir(n int) ([]fs.DirEntry, error) {
 	if n <= 0 {
 		entries := f.entries[f.pos:]
 		f.pos = len(f.entries)
+
 		return entries, nil
 	}
 	if f.pos >= len(f.entries) {
 		return nil, io.EOF
 	}
-	end := f.pos + n
-	if end > len(f.entries) {
-		end = len(f.entries)
-	}
+	end := min(f.pos+n, len(f.entries))
 	entries := f.entries[f.pos:end]
 	f.pos = end
+
 	return entries, nil
 }

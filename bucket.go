@@ -1,3 +1,5 @@
+// Package main implements an AWS Lambda and CLI that generates JSON and HTML index files for the
+// contents of an S3 bucket.
 package main
 
 import (
@@ -48,6 +50,7 @@ func (l *S3Bucket) UpdateObjectsWithTags(ctx context.Context, items []Object) er
 				return fmt.Errorf("error fetching tags for %v: %w", obj.Key(), err)
 			}
 			items[idx].SetTags(tags)
+
 			return nil
 		})
 	}
@@ -62,6 +65,7 @@ func (l *S3Bucket) ListObjectsWithTags(ctx context.Context, prefix string) ([]Ob
 	}
 
 	err = l.UpdateObjectsWithTags(ctx, items)
+
 	return items, err
 }
 
@@ -78,7 +82,7 @@ func (l *S3Bucket) ListObjects(ctx context.Context, prefix string) ([]Object, er
 		input.ContinuationToken = continuationToken
 		output, err := l.s3Client.ListObjectsV2(ctx, input)
 		if err != nil {
-			return nil, fmt.Errorf("error listing objects: %v", err)
+			return nil, fmt.Errorf("error listing objects: %w", err)
 		}
 		for _, o := range output.Contents {
 			items = append(items, NewObject(o))
@@ -95,6 +99,7 @@ func (l *S3Bucket) ListObjects(ctx context.Context, prefix string) ([]Object, er
 func (l *S3Bucket) fetchObjectTags(ctx context.Context, key string) (map[string]string, error) {
 	b := backoff.NewExponentialBackOff()
 	b.MaxElapsedTime = 15 * time.Second
+
 	return fetchObjectTagsWithBackoff(ctx, l.s3Client, l.bucketName, key, b)
 }
 
@@ -111,6 +116,7 @@ func fetchObjectTagsWithBackoff(ctx context.Context, client s3ObjectAPI, bucketN
 
 	err = backoff.Retry(func() error {
 		tags, err = client.GetObjectTagging(ctx, tagInput)
+
 		return err
 	}, b)
 

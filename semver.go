@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/coreos/go-semver/semver"
@@ -9,12 +9,13 @@ import (
 
 func IsVersionLabel(label string) bool {
 	_, err := ParseSemVer(label)
+
 	return err == nil
 }
 
 func ParseSemVer(version string) (*semver.Version, error) {
 	if len(version) == 0 {
-		return nil, fmt.Errorf("empty version string")
+		return nil, errors.New("empty version string")
 	}
 	// strip leading 'v' if present
 	if version[0] == 'v' || version[0] == 'V' {
@@ -23,12 +24,12 @@ func ParseSemVer(version string) (*semver.Version, error) {
 
 	// add missing patch version
 	if strings.Count(version, ".") == 0 {
-		version = version + ".0.0"
+		version += ".0.0"
 	}
 
 	// add missing minor and patch version
 	if strings.Count(version, ".") == 1 {
-		version = version + ".0"
+		version += ".0"
 	}
 
 	return semver.NewVersion(version)

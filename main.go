@@ -48,6 +48,37 @@ type Config struct {
 	ReleaseKeyPatterns []string
 }
 
+// s3URLFromEnvironment parses the named environment variable as an s3:// URL.
+// It returns nil when the variable is not set.
+func s3URLFromEnvironment(name string) (*url.URL, error) {
+	value, ok := os.LookupEnv(name)
+	if !ok {
+		return nil, nil //nolint:nilnil // an unset variable is not an error and has no URL
+	}
+
+	u, err := url.Parse(value)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", name, err)
+	}
+	if u.Scheme != "s3" {
+		return nil, fmt.Errorf("invalid %s: expected s3:// scheme, got %q", name, u.Scheme)
+	}
+
+	return u, nil
+}
+
+// indexFormatsFromEnvironment returns the formats listed in INDEX_FORMATS, defaulting to HTML and JSON
+// when it is unset or lists no known format.
+func indexFormatsFromEnvironment() []IndexFormat {
+	if value, ok := os.LookupEnv("INDEX_FORMATS"); ok {
+		if formats := indexFormats(value); len(formats) > 0 {
+			return formats
+		}
+	}
+
+	return []IndexFormat{HTMLIndex, JSONIndex}
+}
+
 func parseConfigFromEnvironment() (Config, error) {
 	var cfg Config
 
@@ -59,44 +90,24 @@ func parseConfigFromEnvironment() (Config, error) {
 
 	if cfg.IndexType, ok = os.LookupEnv("INDEX_TYPE"); !ok {
 		cfg.IndexType = MultiPageIdentifier
-	} else {
-		if cfg.IndexType != MultiPageIdentifier && cfg.IndexType != SinglePageIdentifier {
-			return cfg, fmt.Errorf("invalid INDEX_TYPE %q: expected %q or %q", cfg.IndexType, MultiPageIdentifier, SinglePageIdentifier)
-		}
+	} else if cfg.IndexType != MultiPageIdentifier && cfg.IndexType != SinglePageIdentifier {
+		return cfg, fmt.Errorf("invalid INDEX_TYPE %q: expected %q or %q", cfg.IndexType, MultiPageIdentifier, SinglePageIdentifier)
 	}
 
-	if indexFormatValue, ok := os.LookupEnv("INDEX_FORMATS"); ok {
-		cfg.IndexFormats = indexFormats(indexFormatValue)
-	}
-
-	if len(cfg.IndexFormats) == 0 {
-		cfg.IndexFormats = []IndexFormat{HTMLIndex, JSONIndex}
-	}
+	cfg.IndexFormats = indexFormatsFromEnvironment()
 
 	if cfg.IndexTemplate, ok = os.LookupEnv("INDEX_TEMPLATE"); !ok {
 		cfg.IndexTemplate = fmt.Sprintf("%v.index.html.tmpl", cfg.IndexType)
 	}
 
-	if templateBucketURLString, ok := os.LookupEnv("TEMPLATE_BUCKET_URL"); ok {
-		tmpURL, err := url.Parse(templateBucketURLString)
-		if err != nil {
-			return cfg, fmt.Errorf("invalid TEMPLATE_BUCKET_URL: %w", err)
-		}
-		if tmpURL.Scheme != "s3" {
-			return cfg, fmt.Errorf("invalid TEMPLATE_BUCKET_URL: expected s3:// scheme, got %q", tmpURL.Scheme)
-		}
-		cfg.TemplateBucketURL = tmpURL
+	var err error
+
+	if cfg.TemplateBucketURL, err = s3URLFromEnvironment("TEMPLATE_BUCKET_URL"); err != nil {
+		return cfg, err
 	}
 
-	if staticBucketURLString, ok := os.LookupEnv("STATIC_BUCKET_URL"); ok {
-		tmpURL, err := url.Parse(staticBucketURLString)
-		if err != nil {
-			return cfg, fmt.Errorf("invalid STATIC_BUCKET_URL: %w", err)
-		}
-		if tmpURL.Scheme != "s3" {
-			return cfg, fmt.Errorf("invalid STATIC_BUCKET_URL: expected s3:// scheme, got %q", tmpURL.Scheme)
-		}
-		cfg.StaticBucketURL = tmpURL
+	if cfg.StaticBucketURL, err = s3URLFromEnvironment("STATIC_BUCKET_URL"); err != nil {
+		return cfg, err
 	}
 
 	// Can we figure these details out by looking at bucket config?
@@ -120,6 +131,7 @@ func indexFormats(indexFormat string) []IndexFormat {
 			formats = append(formats, HTMLIndex)
 		}
 	}
+
 	return formats
 }
 
@@ -139,6 +151,7 @@ func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, even
 
 		if !strings.HasPrefix(s3Entity.Object.Key, cfg.ObjectPrefix) {
 			fmt.Printf("skipping: key %v does not match prefix %v", s3Entity.Object.Key, cfg.ObjectPrefix)
+
 			return nil
 		}
 
@@ -157,7 +170,7 @@ type Pipeline struct {
 }
 
 // newPipeline constructs a Pipeline, resolving templates and static assets.
-func newPipeline(ctx context.Context, client *s3.Client, cfg Config, outputFS afero.Fs) (*Pipeline, error) {
+func newPipeline(_ context.Context, client *s3.Client, cfg Config, outputFS afero.Fs) (*Pipeline, error) {
 	renderers, err := indexRenderers(client, cfg)
 	if err != nil {
 		return nil, err
@@ -260,6 +273,7 @@ func indexRenderers(client *s3.Client, cfg Config) (IndexRenderers, error) {
 func TimeFunc(f func() error) (time.Duration, error) {
 	start := time.Now()
 	err := f()
+
 	return time.Since(start), err
 }
 
@@ -295,44 +309,56 @@ func main() {
 			log.Fatalf("BUCKET environment variable is required in Lambda mode")
 		}
 		lambda.Start(HandleRequest(client, cfg))
-	} else {
-		if len(os.Args) >= 2 {
-			cfg.Bucket, cfg.DestinationBucketPrefix, _ = strings.Cut(os.Args[1], "/")
 
-			outputFS, err := localOutputFS(os.Args)
-			if err != nil {
-				log.Fatalf("failed to create local output FS: %v", err)
-			}
+		return
+	}
 
-			if outputFS == nil {
-				outputFS = NewS3OutputFS(client, cfg.Bucket, "", &cfg.ServerSideEncryption)
-			}
-
-			cpuProf, err := os.Create("cpu.pprof")
-			if err != nil {
-				log.Fatal(err)
-			}
-			defer func() { _ = cpuProf.Close() }()
-			if err := pprof.StartCPUProfile(cpuProf); err != nil {
-				log.Fatal(err)
-			}
-			defer pprof.StopCPUProfile()
-
-			heapProf, err := os.Create("heap.pprof")
-			if err != nil {
-				log.Fatal(err)
-			}
-			defer func() { _ = heapProf.Close() }()
-
-			err = indexS3Bucket(ctx, client, cfg, outputFS)
-			if err != nil {
-				log.Fatalf("failed to generate index files: %v", err)
-			}
-
-			runtime.GC()
-			if err := pprof.WriteHeapProfile(heapProf); err != nil {
-				log.Printf("failed to write heap profile: %v", err)
-			}
+	if len(os.Args) >= 2 {
+		if err := runCLI(ctx, client, cfg, os.Args); err != nil {
+			log.Fatal(err)
 		}
 	}
+}
+
+// runCLI indexes the bucket named by args[1] ("bucket[/prefix]"), writing to args[2] when given or
+// back to the bucket otherwise, and records CPU and heap profiles of the run.
+func runCLI(ctx context.Context, client *s3.Client, cfg Config, args []string) error {
+	cfg.Bucket, cfg.DestinationBucketPrefix, _ = strings.Cut(args[1], "/")
+
+	outputFS, err := localOutputFS(args)
+	if err != nil {
+		return fmt.Errorf("failed to create local output FS: %w", err)
+	}
+
+	if outputFS == nil {
+		outputFS = NewS3OutputFS(client, cfg.Bucket, "", &cfg.ServerSideEncryption)
+	}
+
+	cpuProf, err := os.Create("cpu.pprof")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = cpuProf.Close() }()
+
+	if err := pprof.StartCPUProfile(cpuProf); err != nil {
+		return err
+	}
+	defer pprof.StopCPUProfile()
+
+	heapProf, err := os.Create("heap.pprof")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = heapProf.Close() }()
+
+	if err := indexS3Bucket(ctx, client, cfg, outputFS); err != nil {
+		return fmt.Errorf("failed to generate index files: %w", err)
+	}
+
+	runtime.GC()
+	if err := pprof.WriteHeapProfile(heapProf); err != nil {
+		log.Printf("failed to write heap profile: %v", err)
+	}
+
+	return nil
 }

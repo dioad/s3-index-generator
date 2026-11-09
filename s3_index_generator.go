@@ -43,6 +43,7 @@ func buildIndexConfig(patterns []string) (IndexConfig, error) {
 		}
 		extractions[i] = extractor
 	}
+
 	return IndexConfig{KeyExtractions: extractions}, nil
 }
 
@@ -62,6 +63,7 @@ func nonce() string {
 	if err != nil {
 		log.Fatalf("failed to generate nonce: %v", err)
 	}
+
 	return base64.StdEncoding.EncodeToString(nonce)
 }
 
@@ -76,6 +78,7 @@ func IndexForObjectTree(cfg IndexConfig, objectTree *ObjectTree) any {
 	if IsVersionTree(objectTree) {
 		index = NewVersionIndexForObjectTree(cfg, objectTree)
 	}
+
 	return index
 }
 
@@ -122,6 +125,7 @@ func RenderObjectTreeIndexFile(objectTree *ObjectTree, fileRenderer IndexRendere
 	err = fileRenderer.Render(f, objectTree)
 	if err != nil {
 		writerErr := f.Close()
+
 		return fmt.Errorf("failed to render index file: %w, failed to close file: %w", err, writerErr)
 	}
 
@@ -137,6 +141,7 @@ func (r IndexRenderers) Render(destFS afero.Fs, objectTree *ObjectTree) error {
 			return RenderObjectTreeIndexFile(objectTree, renderer, destFS)
 		})
 	}
+
 	return errGroup.Wait()
 }
 
@@ -152,6 +157,7 @@ func RenderWalker(destFS afero.Fs, renderers IndexRenderers) ObjectTreeWalker {
 		if err != nil {
 			return fmt.Errorf("failed to render object tree indexes for %v: %w", objectTree.FullPath, err)
 		}
+
 		return nil
 	}
 }

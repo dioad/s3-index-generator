@@ -1,0 +1,111 @@
+version: "2"
+
+linters:
+  default: all
+  disable:
+    - inamedparam
+    - gochecknoinits
+    - wsl
+    - wsl_v5
+    - whitespace
+    - wrapcheck
+    - exhaustruct
+    - exhaustruct_v5
+    - err113
+    - testpackage
+    - depguard
+    - paralleltest
+    - varnamelen
+    - forbidigo
+    - funlen
+    - gochecknoglobals
+    - godox
+    - lll
+    - mnd
+    - noinlineerr
+    # funcorder demands constructor-then-exported-then-unexported ordering,
+    # which conflicts with this codebase's existing, deliberate convention
+    # of placing an unexported helper immediately after the exported method
+    # that calls it (e.g. Server.AddRootResource / registerRootRoute in
+    # http/server.go, predating this config) - readability here comes from
+    # proximity to the call site, not from export-status grouping. Pure
+    # code-organization preference, no correctness value; consistent with
+    # the other style linters already disabled above.
+    - funcorder
+  settings:
+    ireturn:
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        # Generic functions must return their type parameter; that isn't
+        # the "unnecessary interface" smell ireturn looks for.
+        - generic
+        # Interfaces this project returns from constructors deliberately,
+        # to keep the concrete implementation an internal detail:
+        # DoneConn (net.Conn + done-signalling), the prefixlist/ACME
+        # Provider abstractions, LogLevelSetter, and the functional-option
+        # responseOption type.
+        - \.DoneConn$
+        - \.Provider$
+        - \.LogLevelSetter$
+        - \.responseOption$
+        # Constructors that deliberately hide their implementations behind
+        # the afero filesystem and Object abstractions used for S3/local output.
+        - afero\.Fs$
+        - afero\.File$
+        - \.Object$
+    exhaustive:
+      # A switch that deliberately dispatches over a small, bounded subset
+      # of an enum's members and handles everything else in "default" is
+      # exhaustive by design; the default case is the intended catch-all,
+      # not a sign the switch forgot members.
+      default-signifies-exhaustive: true
+    tagliatelle:
+      case:
+        rules:
+          json: snake
+  exclusions:
+    rules:
+      # authz/prefixlist mirrors third-party vendor JSON schemas (AWS
+      # ip-ranges.json, Google Cloud's published ranges, Fastly's IP
+      # list, etc.) verbatim. Renaming those tags to match our own
+      # convention wouldn't just be a style change, it would break
+      # parsing of upstream data we don't control.
+      - path: 'authz/prefixlist/'
+        linters:
+          - tagliatelle
+      # Table-driven tests naturally accumulate cognitive/nesting
+      # "complexity" from many small, independent per-case closures
+      # (checkFunc, subtests); that's the idiomatic Go testing pattern
+      # this project follows (see .claude/rules/go-testing.md), not a
+      # sign the test itself is hard to follow. funlen is disabled
+      # repo-wide for the same reason.
+      - path: '_test\.go'
+        linters:
+          - cyclop
+          - gocognit
+          - gocyclo
+          - maintidx
+          - nestif
+      # Repeated literals in tests are almost always fixture/expectation
+      # data (a hostname, a header name, an error string) restated across
+      # otherwise-independent table-driven cases, not a shared business
+      # constant that drifted. Forcing every one into a package-level
+      # const would couple unrelated test cases together for no benefit;
+      # a magic number/string inside one test's own table is still
+      # self-documenting in context. 96 of this repo's 97 goconst
+      # findings are in _test.go files.
+      - path: '_test\.go'
+        linters:
+          - goconst
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

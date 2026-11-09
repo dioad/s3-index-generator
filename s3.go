@@ -14,5 +14,6 @@ func newS3Client(ctx context.Context) (*s3.Client, error) {
 		return nil, err
 	}
 	awsv2.AWSV2Instrumentor(&cfg.APIOptions)
+
 	return s3.NewFromConfig(cfg), nil
 }

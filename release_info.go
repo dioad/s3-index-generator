@@ -10,6 +10,7 @@ func IsArchiveTree(t *ObjectTree) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -19,6 +20,7 @@ func IsProductTree(t *ObjectTree) bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -35,6 +37,7 @@ func NewArchiveIndexForObjectTree(cfg IndexConfig, t *ObjectTree) *ArchiveIndex 
 			archiveIndex.AddProduct(productIndex)
 		}
 	}
+
 	return archiveIndex
 }
 

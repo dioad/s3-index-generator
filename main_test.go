@@ -32,10 +32,9 @@ func TestIndexFormatsUnknown(t *testing.T) {
 func TestParseConfigFromEnvironment_Defaults(t *testing.T) {
 	// Unset vars so we test defaults, not inherit from the environment.
 	for _, key := range []string{"BUCKET", "INDEX_TYPE", "INDEX_FORMATS", "INDEX_TEMPLATE", "TEMPLATE_BUCKET_URL", "STATIC_BUCKET_URL", "SSE", "OBJECT_PREFIX", "DESTINATION_BUCKET_PREFIX"} {
-		if orig, exists := os.LookupEnv(key); exists {
+		if _, exists := os.LookupEnv(key); exists {
+			t.Setenv(key, "")
 			_ = os.Unsetenv(key)
-			k := key
-			t.Cleanup(func() { _ = os.Setenv(k, orig) })
 		}
 	}
 

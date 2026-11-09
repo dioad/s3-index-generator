@@ -20,6 +20,7 @@ func (e Exclusions) Include(key string) bool {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -33,6 +34,7 @@ func (i Inclusions) Include(key string) bool {
 			return true
 		}
 	}
+
 	return false
 }
 

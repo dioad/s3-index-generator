@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -62,12 +62,14 @@ func TestListObjects_MultiplePages(t *testing.T) {
 			calls++
 			if input.ContinuationToken == nil {
 				token := "token1"
+
 				return &s3.ListObjectsV2Output{
 					Contents:              page1,
 					IsTruncated:           aws.Bool(true),
 					NextContinuationToken: &token,
 				}, nil
 			}
+
 			return &s3.ListObjectsV2Output{
 				Contents:    page2,
 				IsTruncated: aws.Bool(false),
@@ -91,7 +93,7 @@ func TestListObjects_MultiplePages(t *testing.T) {
 func TestListObjects_Error(t *testing.T) {
 	mock := &mockS3Client{
 		listObjectsV2: func(_ context.Context, _ *s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error) {
-			return nil, fmt.Errorf("s3 unavailable")
+			return nil, errors.New("s3 unavailable")
 		},
 	}
 	bucket := newBucketWithMock(mock)
@@ -126,7 +128,7 @@ func TestFetchObjectTagsWithBackoff_Success(t *testing.T) {
 func TestFetchObjectTagsWithBackoff_Error(t *testing.T) {
 	mock := &mockS3Client{
 		getObjectTagging: func(_ context.Context, _ *s3.GetObjectTaggingInput) (*s3.GetObjectTaggingOutput, error) {
-			return nil, fmt.Errorf("access denied")
+			return nil, errors.New("access denied")
 		},
 	}
 
@@ -143,8 +145,9 @@ func TestFetchObjectTagsWithBackoff_RetryThenSuccess(t *testing.T) {
 		getObjectTagging: func(_ context.Context, _ *s3.GetObjectTaggingInput) (*s3.GetObjectTaggingOutput, error) {
 			attempts++
 			if attempts < 3 {
-				return nil, fmt.Errorf("transient error")
+				return nil, errors.New("transient error")
 			}
+
 			return &s3.GetObjectTaggingOutput{
 				TagSet: []s3types.Tag{{Key: aws.String("k"), Value: aws.String("v")}},
 			}, nil

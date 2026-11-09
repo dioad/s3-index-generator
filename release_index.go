@@ -1,7 +1,7 @@
 package main
 
 import (
-	"fmt"
+	"errors"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -33,12 +33,13 @@ func NewReleaseDetailsKeyExtractor(pattern string) (ReleaseDetailsKeyExtractor, 
 	if err != nil {
 		return ReleaseDetailsKeyExtractor{}, err
 	}
+
 	return ReleaseDetailsKeyExtractor{re: re}, nil
 }
 
 func extractMetadataFromKey(re *regexp.Regexp, key string) (map[string]string, error) {
 	if !re.MatchString(key) {
-		return nil, fmt.Errorf("failed to match")
+		return nil, errors.New("failed to match")
 	}
 
 	match := re.FindStringSubmatch(key)
@@ -76,7 +77,8 @@ func (k ReleaseDetailKeyExtractions) ExtractReleaseDetails(key string) (map[stri
 			return results, nil
 		}
 	}
-	return nil, fmt.Errorf("failed to match")
+
+	return nil, errors.New("failed to match")
 }
 
 type IndexConfig struct {
@@ -163,6 +165,7 @@ func NewVersionIndex(cfg IndexConfig, objectTree *ObjectTree) *VersionIndex {
 			versionIndex.Shasums = v.Key()
 		}
 	}
+
 	return versionIndex
 }
 
@@ -171,7 +174,7 @@ type IndexEntry struct {
 	Filename string `json:"filename,omitempty"`
 	Name     string `json:"name,omitempty"` // Dioad/Project
 	Os       string `json:"os,omitempty"`   // Dioad/OS
-	Url      string `json:"url,omitempty"`
+	URL      string `json:"url,omitempty"`
 	Version  string `json:"version,omitempty"` // Dioad/Version
 }
 
@@ -182,7 +185,7 @@ func NewIndexEntry(cfg IndexConfig, o Object) (*IndexEntry, error) {
 	}
 
 	if _, exists := releaseDetails["Version"]; !exists {
-		return nil, fmt.Errorf("failed to extract version")
+		return nil, errors.New("failed to extract version")
 	}
 
 	entry := &IndexEntry{
@@ -190,7 +193,7 @@ func NewIndexEntry(cfg IndexConfig, o Object) (*IndexEntry, error) {
 		Filename: o.BaseName(),
 		Name:     releaseDetails["Product"],
 		Os:       releaseDetails["OS"],
-		Url:      filepath.Join("/", o.Key()),
+		URL:      filepath.Join("/", o.Key()),
 		Version:  releaseDetails["Version"],
 	}
 

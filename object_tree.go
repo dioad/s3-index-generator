@@ -186,6 +186,7 @@ func (t *ObjectTree) walkLocalObjects(f ObjectWalker) error {
 			return err
 		}
 	}
+
 	return nil
 }
 

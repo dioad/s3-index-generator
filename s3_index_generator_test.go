@@ -21,6 +21,7 @@ func TestLoadTemplates(t *testing.T) {
 	tmpl, err := loadTemplates(testTemplateFS)
 	if err != nil {
 		t.Errorf("loadTemplates() error = %v", err)
+
 		return
 	}
 	if tmpl == nil {
@@ -35,6 +36,7 @@ func TestCopyStaticFiles(t *testing.T) {
 	err := CopyFilesFromSubPath(destFS, srcFS, "static")
 	if err != nil {
 		t.Errorf("CopyFilesFromSubPath() error = %v", err)
+
 		return
 	}
 }

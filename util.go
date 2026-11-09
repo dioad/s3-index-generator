@@ -43,6 +43,7 @@ func loadTemplates(templateFS fs.FS) (*template.Template, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return tmpl, nil
 }
 
@@ -50,24 +51,28 @@ func IOFSFromS3URL(client *s3.Client, url *url.URL) (fs.FS, error) {
 	if url.Scheme != "s3" {
 		return nil, errors.New("requires s3 URL")
 	}
+
 	return newS3ReadFS(client, url.Host, strings.TrimPrefix(url.Path, "/")), nil
 }
 
 func FSFromBucketURL(client *s3.Client, bucketURL *url.URL) (fs.FS, error) {
-	if bucketURL != nil {
-		s3Fs, err := IOFSFromS3URL(client, bucketURL)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load FS from %v: %v", bucketURL.Redacted(), err)
-		}
-		return s3Fs, nil
+	if bucketURL == nil {
+		return nil, errors.New("bucket URL is required")
 	}
-	return nil, nil
+
+	s3Fs, err := IOFSFromS3URL(client, bucketURL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load FS from %v: %w", bucketURL.Redacted(), err)
+	}
+
+	return s3Fs, nil
 }
 
 func FSFromS3URLOrDefault(client *s3.Client, s3URL *url.URL, defaultFS fs.FS) (fs.FS, error) {
 	if s3URL != nil {
 		return FSFromBucketURL(client, s3URL)
 	}
+
 	return defaultFS, nil
 }
 
@@ -83,18 +88,19 @@ func CopyFile(destFS afero.Fs, srcFS fs.FS) fs.WalkDirFunc {
 
 		srcFile, err := srcFS.Open(p)
 		if err != nil {
-			return fmt.Errorf("failed to open source path: %v", err)
+			return fmt.Errorf("failed to open source path: %w", err)
 		}
 		defer func() { _ = srcFile.Close() }()
 
 		destFile, err := destFS.OpenFile(p, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 		if err != nil {
-			return fmt.Errorf("failed to open destination path: %v", err)
+			return fmt.Errorf("failed to open destination path: %w", err)
 		}
 
 		if _, err = io.Copy(destFile, srcFile); err != nil {
 			_ = destFile.Close()
-			return fmt.Errorf("failed to copy: %v", err)
+
+			return fmt.Errorf("failed to copy: %w", err)
 		}
 
 		return destFile.Close()
@@ -103,6 +109,7 @@ func CopyFile(destFS afero.Fs, srcFS fs.FS) fs.WalkDirFunc {
 
 func CopyFilesFromSubPath(destFS afero.Fs, srcFS fs.FS, srcPath string) error {
 	f := CopyFile(destFS, srcFS)
+
 	return fs.WalkDir(srcFS, srcPath, f)
 }
 
@@ -110,8 +117,9 @@ func NewLocalOutputFS(localOutputDirectory string) (afero.Fs, error) {
 	o := afero.NewOsFs()
 	mkdirErr := o.MkdirAll(localOutputDirectory, 0755)
 	if mkdirErr != nil {
-		return nil, fmt.Errorf("failed to mkdir: %v", mkdirErr)
+		return nil, fmt.Errorf("failed to mkdir: %w", mkdirErr)
 	}
+
 	return afero.NewBasePathFs(o, localOutputDirectory), nil
 }
 

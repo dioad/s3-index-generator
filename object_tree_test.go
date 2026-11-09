@@ -121,6 +121,7 @@ func TestWalker(t *testing.T) {
 		fmt.Printf("walker: %v\n", filepath.Join(tree.FullPath, "index.json"))
 
 		paths = append(paths, tree.Objects...)
+
 		return nil
 	}
 

@@ -157,3 +157,55 @@ func TestBuildIndexConfig_CustomPatterns(t *testing.T) {
 		t.Errorf("unexpected extraction result: %v", result)
 	}
 }
+
+func TestSkipReason(t *testing.T) {
+	cfg := Config{ObjectPrefix: "data", DestinationBucketPrefix: ""}
+	privateCfg := Config{ObjectPrefix: "private-data", DestinationBucketPrefix: "private"}
+
+	tests := []struct {
+		name string
+		cfg  Config
+		key  string
+		skip bool
+	}{
+		{"release artefact is indexed", cfg, "data/product/1.0.0/product_linux_amd64.zip", false},
+		{"outside object prefix", cfg, "other/file.zip", true},
+		{"generated html index", cfg, "data/product/index.html", true},
+		{"generated json index", cfg, "data/product/index.json", true},
+		{"static asset under destination", cfg, "static/style.css", true},
+		{"static asset under prefixed destination", Config{ObjectPrefix: "a", DestinationBucketPrefix: "out"}, "out/static/style.css", true},
+		{"private artefact is indexed", privateCfg, "private-data/x/1.0.0/x.zip", false},
+		{"private generated index", privateCfg, "private-data/x/index.json", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := skipReason(tt.cfg, tt.key) != ""; got != tt.skip {
+				t.Errorf("skipReason(%q) skipped = %v, want %v", tt.key, got, tt.skip)
+			}
+		})
+	}
+}
+
+func TestConfigValidate(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		wantErr bool
+	}{
+		{"deployed public config", Config{ObjectPrefix: "data", DestinationBucketPrefix: ""}, false},
+		{"deployed private config", Config{ObjectPrefix: "private-data", DestinationBucketPrefix: "private"}, false},
+		{"no object prefix", Config{ObjectPrefix: "", DestinationBucketPrefix: ""}, false},
+		{"destination equals object prefix", Config{ObjectPrefix: "data", DestinationBucketPrefix: "data"}, true},
+		{"destination inside object prefix", Config{ObjectPrefix: "data", DestinationBucketPrefix: "data/out/"}, true},
+		{"sibling prefix sharing a name prefix", Config{ObjectPrefix: "data", DestinationBucketPrefix: "database"}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if err := tt.cfg.validate(); (err != nil) != tt.wantErr {
+				t.Errorf("validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}

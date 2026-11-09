@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"path"
 	"runtime"
 	"runtime/pprof"
 	"slices"
@@ -117,7 +118,7 @@ func parseConfigFromEnvironment() (Config, error) {
 		cfg.ReleaseKeyPatterns = strings.Split(releaseKeyPatterns, ",")
 	}
 
-	return cfg, nil
+	return cfg, cfg.validate()
 }
 
 func indexFormats(indexFormat string) []IndexFormat {
@@ -135,6 +136,45 @@ func indexFormats(indexFormat string) []IndexFormat {
 	return formats
 }
 
+// generatedIndexFiles are the file names the generator writes into every directory.
+var generatedIndexFiles = []string{"index.html", "index.json"}
+
+// skipReason explains why an event for key must not trigger a run, or returns "" if it should. Keys the
+// generator writes itself (index files and static assets) are skipped so its own output can never start
+// another run, whatever the destination prefix is.
+func skipReason(cfg Config, key string) string {
+	if !strings.HasPrefix(key, cfg.ObjectPrefix) {
+		return fmt.Sprintf("does not match prefix %q", cfg.ObjectPrefix)
+	}
+
+	if slices.Contains(generatedIndexFiles, path.Base(key)) {
+		return "is a generated index file"
+	}
+
+	if strings.HasPrefix(key, path.Join(cfg.DestinationBucketPrefix, "static")+"/") {
+		return "is a generated static asset"
+	}
+
+	return ""
+}
+
+// validate rejects configurations in which the generator's output would land inside the prefix whose
+// events trigger it, which would make every run start another.
+func (c Config) validate() error {
+	if c.ObjectPrefix == "" {
+		return nil
+	}
+
+	objectPrefix := strings.Trim(c.ObjectPrefix, "/") + "/"
+	destinationPrefix := strings.Trim(c.DestinationBucketPrefix, "/") + "/"
+	if strings.HasPrefix(destinationPrefix, objectPrefix) {
+		return fmt.Errorf("DESTINATION_BUCKET_PREFIX %q is inside OBJECT_PREFIX %q: generated indexes would trigger further runs",
+			c.DestinationBucketPrefix, c.ObjectPrefix)
+	}
+
+	return nil
+}
+
 func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, event events.S3Event) error {
 	return func(ctx context.Context, event events.S3Event) error {
 		if len(event.Records) == 0 {
@@ -149,8 +189,8 @@ func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, even
 			event.Records[0].EventName,
 		)
 
-		if !strings.HasPrefix(s3Entity.Object.Key, cfg.ObjectPrefix) {
-			fmt.Printf("skipping: key %v does not match prefix %v", s3Entity.Object.Key, cfg.ObjectPrefix)
+		if reason := skipReason(cfg, s3Entity.Object.Key); reason != "" {
+			fmt.Printf("skipping: key %v %v\n", s3Entity.Object.Key, reason)
 
 			return nil
 		}
@@ -324,6 +364,10 @@ func main() {
 // back to the bucket otherwise, and records CPU and heap profiles of the run.
 func runCLI(ctx context.Context, client *s3.Client, cfg Config, args []string) error {
 	cfg.Bucket, cfg.DestinationBucketPrefix, _ = strings.Cut(args[1], "/")
+
+	if err := cfg.validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
 
 	outputFS, err := localOutputFS(args)
 	if err != nil {

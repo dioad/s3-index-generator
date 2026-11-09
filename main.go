@@ -218,6 +218,9 @@ func shouldIndex(cfg Config, invocation Invocation) bool {
 // HandleRequest returns the Lambda handler. The index is rebuilt in full, so one run covers every record
 // in the event however many qualify.
 func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, invocation Invocation) error {
+	// Created once per container so cached static assets are recognised as already copied to it.
+	outputFS := NewS3OutputFS(client, cfg.Bucket, cfg.DestinationBucketPrefix, &cfg.ServerSideEncryption)
+
 	return func(ctx context.Context, invocation Invocation) error {
 		fmt.Printf("records length: %d\n", len(invocation.Records))
 
@@ -225,7 +228,9 @@ func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, invo
 			return nil
 		}
 
-		outputFS := NewS3OutputFS(client, cfg.Bucket, cfg.DestinationBucketPrefix, &cfg.ServerSideEncryption)
+		if invocation.Reindex {
+			resetCaches()
+		}
 
 		return indexS3Bucket(ctx, client, cfg, outputFS)
 	}

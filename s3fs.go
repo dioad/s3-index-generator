@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -261,6 +263,34 @@ func (f *s3ReadFS) ReadDir(name string) ([]fs.DirEntry, error) {
 	})
 
 	return entries, nil
+}
+
+// signature implements signedFS. It lists every object under the file system's prefix, so the result
+// changes whenever any file is added, removed or replaced, for one request per 1000 objects.
+func (f *s3ReadFS) signature() (string, error) {
+	prefix := f.dirPrefix(".")
+	hash := sha256.New()
+
+	var continuationToken *string
+	for {
+		output, err := f.client.ListObjectsV2(context.Background(), &s3.ListObjectsV2Input{
+			Bucket:            &f.bucket,
+			Prefix:            aws.String(prefix),
+			ContinuationToken: continuationToken,
+		})
+		if err != nil {
+			return "", fmt.Errorf("failed to list %s: %w", prefix, err)
+		}
+
+		for _, obj := range output.Contents {
+			_, _ = fmt.Fprintf(hash, "%s\x00%s\x00%d\n", aws.ToString(obj.Key), aws.ToString(obj.ETag), aws.ToInt64(obj.Size))
+		}
+
+		if !aws.ToBool(output.IsTruncated) {
+			return hex.EncodeToString(hash.Sum(nil)), nil
+		}
+		continuationToken = output.NextContinuationToken
+	}
 }
 
 // dirPrefix returns the S3 key prefix that lists the contents of the directory name.

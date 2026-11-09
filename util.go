@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -155,30 +156,116 @@ func NewS3OutputFS(client *s3.Client, bucketName string, prefix string, serverSi
 	return outputFS
 }
 
+// signedFS is implemented by file systems that can cheaply tell whether their contents have changed.
+type signedFS interface {
+	// signature returns a value that changes whenever any file in the file system changes.
+	signature() (string, error)
+}
+
+// embeddedSignature stands in for the signature of the embedded assets, which cannot change while the
+// process is running.
+const embeddedSignature = "embedded"
+
+var (
+	templateCacheMu sync.Mutex
+	templateCache   struct {
+		signature string
+		tmpl      *template.Template
+	}
+
+	staticCopyMu sync.Mutex
+	staticCopy   struct {
+		dest      afero.Fs
+		signature string
+	}
+)
+
+// resetCaches forgets the cached templates and static copy, forcing the next run to rebuild both.
+func resetCaches() {
+	templateCacheMu.Lock()
+	templateCache.signature, templateCache.tmpl = "", nil
+	templateCacheMu.Unlock()
+
+	staticCopyMu.Lock()
+	staticCopy.dest, staticCopy.signature = nil, ""
+	staticCopyMu.Unlock()
+}
+
+func sourceSignature(fsys fs.FS) (string, bool, error) {
+	signed, ok := fsys.(signedFS)
+	if !ok {
+		return embeddedSignature, false, nil
+	}
+
+	sig, err := signed.signature()
+
+	return sig, true, err
+}
+
+// LoadTemplates parses the templates from templateBucketURL, or the embedded ones when it is nil. Templates
+// read from S3 are reused across invocations of a warm Lambda for as long as their ETags are unchanged.
 func LoadTemplates(client *s3.Client, templateBucketURL *url.URL) (*template.Template, error) {
 	tmplFS, err := FSFromS3URLOrDefault(client, templateBucketURL, defaultTemplateFS)
 	if err != nil {
 		return nil, err
 	}
 
+	return loadCachedTemplates(tmplFS)
+}
+
+func loadCachedTemplates(tmplFS fs.FS) (*template.Template, error) {
+	sig, signed, err := sourceSignature(tmplFS)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check templates for changes: %w", err)
+	}
+	if !signed {
+		return loadTemplates(tmplFS)
+	}
+
+	templateCacheMu.Lock()
+	defer templateCacheMu.Unlock()
+
+	if templateCache.tmpl != nil && templateCache.signature == sig {
+		return templateCache.tmpl, nil
+	}
+
 	tmpl, err := loadTemplates(tmplFS)
 	if err != nil {
 		return nil, err
 	}
+	templateCache.signature, templateCache.tmpl = sig, tmpl
 
-	return tmpl, err
+	return tmpl, nil
 }
 
+// CopyStaticFiles copies the static assets from staticBucketURL, or the embedded ones when it is nil, into
+// destFS. A copy already made to the same destFS from unchanged assets is not repeated.
 func CopyStaticFiles(client *s3.Client, destFS afero.Fs, staticBucketURL *url.URL) error {
 	staticFS, err := FSFromS3URLOrDefault(client, staticBucketURL, defaultStaticFS)
 	if err != nil {
 		return fmt.Errorf("failed to load static assets from bucket %v: %w", staticBucketURL, err)
 	}
 
-	err = CopyFilesFromSubPath(destFS, staticFS, "static")
+	return copyStaticOnce(destFS, staticFS)
+}
+
+func copyStaticOnce(destFS afero.Fs, staticFS fs.FS) error {
+	sig, _, err := sourceSignature(staticFS)
 	if err != nil {
+		return fmt.Errorf("failed to check static assets for changes: %w", err)
+	}
+
+	staticCopyMu.Lock()
+	defer staticCopyMu.Unlock()
+
+	if staticCopy.dest == destFS && staticCopy.signature == sig {
+		return nil
+	}
+
+	if err := CopyFilesFromSubPath(destFS, staticFS, "static"); err != nil {
 		return fmt.Errorf("failed to copy static files %w", err)
 	}
+	staticCopy.dest, staticCopy.signature = destFS, sig
 
 	return nil
 }

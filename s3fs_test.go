@@ -14,7 +14,8 @@ import (
 
 // fakeS3Read implements s3ReadAPI with canned responses.
 type fakeS3Read struct {
-	getObject func(*s3.GetObjectInput) (*s3.GetObjectOutput, error)
+	getObject   func(*s3.GetObjectInput) (*s3.GetObjectOutput, error)
+	listObjects func(*s3.ListObjectsV2Input) (*s3.ListObjectsV2Output, error)
 }
 
 func (f *fakeS3Read) GetObject(_ context.Context, in *s3.GetObjectInput, _ ...func(*s3.Options)) (*s3.GetObjectOutput, error) {
@@ -25,8 +26,12 @@ func (f *fakeS3Read) HeadObject(context.Context, *s3.HeadObjectInput, ...func(*s
 	return nil, errors.New("unexpected HeadObject")
 }
 
-func (f *fakeS3Read) ListObjectsV2(context.Context, *s3.ListObjectsV2Input, ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
-	return nil, errors.New("unexpected ListObjectsV2")
+func (f *fakeS3Read) ListObjectsV2(_ context.Context, in *s3.ListObjectsV2Input, _ ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	if f.listObjects == nil {
+		return nil, errors.New("unexpected ListObjectsV2")
+	}
+
+	return f.listObjects(in)
 }
 
 func TestS3ReadFSOpen(t *testing.T) {

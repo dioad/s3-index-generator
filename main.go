@@ -175,23 +175,32 @@ func (c Config) validate() error {
 	return nil
 }
 
-func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, event events.S3Event) error {
-	return func(ctx context.Context, event events.S3Event) error {
-		if len(event.Records) == 0 {
-			return nil
+// recordsToIndex returns how many records in the event warrant an index run, logging each one it skips.
+func recordsToIndex(cfg Config, event events.S3Event) int {
+	count := 0
+
+	for _, record := range event.Records {
+		key := record.S3.Object.Key
+		if reason := skipReason(cfg, key); reason != "" {
+			fmt.Printf("skipping: key %v %v\n", key, reason)
+
+			continue
 		}
 
-		s3Entity := event.Records[0].S3
-		fmt.Printf("records length: %d", len(event.Records))
-		fmt.Printf(" record[0]: bucket: %v, key: %v, event: %v",
-			s3Entity.Bucket.Name,
-			s3Entity.Object.Key,
-			event.Records[0].EventName,
-		)
+		fmt.Printf("record: bucket: %v, key: %v, event: %v\n", record.S3.Bucket.Name, key, record.EventName)
+		count++
+	}
 
-		if reason := skipReason(cfg, s3Entity.Object.Key); reason != "" {
-			fmt.Printf("skipping: key %v %v\n", s3Entity.Object.Key, reason)
+	return count
+}
 
+// HandleRequest returns the Lambda handler for S3 events. The index is rebuilt in full, so one run
+// covers every record in the event however many qualify.
+func HandleRequest(client *s3.Client, cfg Config) func(ctx context.Context, event events.S3Event) error {
+	return func(ctx context.Context, event events.S3Event) error {
+		fmt.Printf("records length: %d\n", len(event.Records))
+
+		if recordsToIndex(cfg, event) == 0 {
 			return nil
 		}
 

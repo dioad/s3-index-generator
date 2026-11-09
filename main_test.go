@@ -3,6 +3,8 @@ package main
 import (
 	"os"
 	"testing"
+
+	"github.com/aws/aws-lambda-go/events"
 )
 
 func TestIndexFormats(t *testing.T) {
@@ -205,6 +207,42 @@ func TestConfigValidate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if err := tt.cfg.validate(); (err != nil) != tt.wantErr {
 				t.Errorf("validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestRecordsToIndex(t *testing.T) {
+	cfg := Config{ObjectPrefix: "data"}
+
+	record := func(key string) events.S3EventRecord {
+		var r events.S3EventRecord
+		r.S3.Object.Key = key
+
+		return r
+	}
+
+	tests := []struct {
+		name string
+		keys []string
+		want int
+	}{
+		{"empty event", nil, 0},
+		{"single artefact", []string{"data/p/1.0.0/p.zip"}, 1},
+		{"every qualifying record is counted", []string{"data/a.zip", "data/b.zip", "data/c.zip"}, 3},
+		{"later qualifying record is not ignored", []string{"data/p/index.html", "data/b.zip"}, 1},
+		{"only generated or foreign keys", []string{"data/p/index.json", "other/x.zip"}, 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var event events.S3Event
+			for _, k := range tt.keys {
+				event.Records = append(event.Records, record(k))
+			}
+
+			if got := recordsToIndex(cfg, event); got != tt.want {
+				t.Errorf("recordsToIndex() = %d, want %d", got, tt.want)
 			}
 		})
 	}
